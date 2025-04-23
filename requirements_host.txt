@@ -9,3 +9,4 @@ selenium
 numpy
 Pillow
 lxml_html_clean
+webdriver-manager
