@@ -181,6 +181,58 @@ if ($shouldInstallChromedriver) {
     Write-Info "Skipping ChromeDriver installation - existing version is compatible."
 }
 
+# Install wkhtmltopdf for PDF generation
+Write-Info "Checking wkhtmltopdf installation..."
+$wkhtmltopdfPath = "C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+$wkhtmltopdfInstalled = Test-Path $wkhtmltopdfPath -PathType Leaf
+
+if (-not $wkhtmltopdfInstalled) {
+    $installWkhtmltopdf = Read-Host "wkhtmltopdf not found. Would you like to install it for PDF report generation? [Y/n]"
+    if ($installWkhtmltopdf -ne 'n') {
+        Write-Info "Installing wkhtmltopdf..."
+        try {
+            # First try using winget
+            if (Get-Command winget -ErrorAction SilentlyContinue) {
+                Write-Info "Using winget to install wkhtmltopdf..."
+                winget install wkhtmltopdf.wkhtmltopdf -e --accept-source-agreements --accept-package-agreements
+            } else {
+                # Fallback to direct download
+                Write-Info "Downloading wkhtmltopdf installer..."
+                $installerUrl = "https://github.com/wkhtmltopdf/packaging/releases/download/0.12.7-1/wkhtmltox-0.12.7-1.msvc2019-win64.exe"
+                $installer = "$env:TEMP\wkhtmltopdf_installer.exe"
+                Invoke-WebRequest $installerUrl -OutFile $installer
+                Start-Process -FilePath $installer -Args "/S" -Wait
+                Remove-Item $installer
+            }
+            
+            # Add to PATH if not already present
+            $currentPath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
+            $wkhtmltopdfDir = "C:\Program Files\wkhtmltopdf\bin"
+            if ($currentPath -notlike "*$wkhtmltopdfDir*") {
+                [Environment]::SetEnvironmentVariable("PATH", "$currentPath;$wkhtmltopdfDir", "Machine")
+                $env:PATH = "$env:PATH;$wkhtmltopdfDir"
+                Write-Info "Added wkhtmltopdf to system PATH"
+            }
+            
+            Write-Info "wkhtmltopdf installation complete."
+            # Verify installation
+            $wkhtmltopdfVersion = & $wkhtmltopdfPath --version
+            Write-Info "Installed wkhtmltopdf version: $wkhtmltopdfVersion"
+        } catch {
+            Write-Error "Failed to install wkhtmltopdf: $_"
+            Write-Warning "Please install wkhtmltopdf manually from https://wkhtmltopdf.org/downloads.html"
+        }
+    }
+} else {
+    Write-Info "wkhtmltopdf is already installed at: $wkhtmltopdfPath"
+    try {
+        $wkhtmltopdfVersion = & $wkhtmltopdfPath --version
+        Write-Info "Current wkhtmltopdf version: $wkhtmltopdfVersion"
+    } catch {
+        Write-Warning "Could not determine wkhtmltopdf version"
+    }
+}
+
 # Set up Python virtual environment
 Write-Info "Setting up Python virtual environment..."
 if (-not (Test-Path "host_venv")) {
@@ -333,9 +385,11 @@ Write-Host "3. Ensure necessary API keys are correctly set in:"
 Write-Host "   - .env"
 Write-Host "   - .\settings\llm_settings\ai_models.yml (if modified)`n"
 
-Write-Host "4. Verify Chrome and ChromeDriver are working if you rely on Selenium features.`n"
+Write-Host "4. Verify Chrome and ChromeDriver are working if you rely on Selenium features."
+Write-Host "5. PDF report generation is configured with wkhtmltopdf. If you skipped installation,"
+Write-Host "   install it manually from https://wkhtmltopdf.org/downloads.html`n"
 
-Write-Host "5. To deactivate the environment when finished (works in both PowerShell and CMD):"
+Write-Host "6. To deactivate the environment when finished (works in both PowerShell and CMD):"
 Write-Host "   deactivate`n"
 
 Write-Host "Note: The environment can be used from either PowerShell or Command Prompt (CMD)."
