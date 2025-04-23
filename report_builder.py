@@ -13,6 +13,8 @@ from bs4 import BeautifulSoup
 from newspaper import Article, ArticleException # Using newspaper4k for better web scraping
 import PyPDF2 # Renamed from pypdf - assuming PyPDF2 is intended or needs update
 import docx
+import markdown # For converting markdown to HTML
+import pdfkit # For converting HTML to PDF
 # Removed PRAW import, adding Selenium imports
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -1179,18 +1181,40 @@ def generate_report(summaries_with_scores, reference_docs_content, topic, config
         return None, None
 
     # --- Parse and Save Initial Report ---
-    report_text = parse_ai_tool_response(cleaned_response, "reportContent")
+    report_text = None
+    max_retries = 3
+    retry_delay = 5
 
-    # Check if parsing failed or returned nothing *or* returned the full response (meaning tag wasn't used correctly)
-    if not report_text or report_text == clean_thinking_tags(cleaned_response):
-        print("\nError: Could not parse valid <reportContent> from the AI response for the initial report.")
-        log_to_file(f"Report Gen Error: Failed to parse <reportContent> tag or content was empty.\nCleaned Response was:\n{clean_thinking_tags(cleaned_response)}")
-        if run_archive_dir:
-            failed_report_path = os.path.join(run_archive_dir, "report_INITIAL_FAILED_PARSE.txt")
-            try:
-                with open(failed_report_path, 'w', encoding='utf-8') as frf: frf.write(clean_thinking_tags(cleaned_response) or "Original cleaned response was empty.")
-            except IOError: pass
-        return None, None # Return None for path and content
+    for attempt in range(max_retries):
+        report_text = parse_ai_tool_response(cleaned_response, "reportContent")
+        
+        # Check if parsing failed or returned nothing *or* returned the full response
+        if not report_text or report_text == clean_thinking_tags(cleaned_response):
+            if attempt < max_retries - 1:  # If we still have retries left
+                print(f"\nWarning: Could not parse <reportContent> tag (Attempt {attempt + 1}/{max_retries})")
+                print(f"Waiting {retry_delay} seconds before retry...")
+                log_to_file(f"Report Gen Warning: Parse attempt {attempt + 1} failed, retrying in {retry_delay}s")
+                time.sleep(retry_delay)
+                
+                # Try generating the report again
+                raw_response, cleaned_response = call_ai_api(prompt, config, tool_name=f"ReportGeneration_Retry_{attempt + 1}", timeout=3000)
+                
+                if not cleaned_response:
+                    print(f"\nError: Failed to get API response on retry {attempt + 1}")
+                    log_to_file(f"Report Gen Error: API call failed on retry {attempt + 1}")
+                    continue
+            else:  # Last attempt failed
+                print("\nError: Could not parse valid <reportContent> after all retry attempts.")
+                log_to_file(f"Report Gen Error: Failed to parse <reportContent> tag after {max_retries} attempts.\nLast Response:\n{clean_thinking_tags(cleaned_response)}")
+                if run_archive_dir:
+                    failed_report_path = os.path.join(run_archive_dir, "report_INITIAL_FAILED_PARSE.txt")
+                    try:
+                        with open(failed_report_path, 'w', encoding='utf-8') as frf: frf.write(clean_thinking_tags(cleaned_response) or "Original cleaned response was empty.")
+                    except IOError: pass
+                return None, None  # Return None for path and content
+        else:  # Successfully parsed content
+            print(f"\nSuccessfully parsed report content{' on retry ' + str(attempt) if attempt > 0 else ''}.")
+            break
 
     # Save the initial, unrefined report to the archive
     initial_report_filename = "research_report_initial_raw.txt" # Name indicating it's the raw version
@@ -1220,6 +1244,57 @@ def generate_report(summaries_with_scores, reference_docs_content, topic, config
                 return None, None # Failed completely
         else: # No archive dir was set, fail saving
              return None, None
+
+def convert_markdown_to_pdf(markdown_content, pdf_path):
+    """Convert markdown content to PDF using pdfkit/wkhtmltopdf."""
+    try:
+        # Convert markdown to HTML
+        html_content = markdown.markdown(markdown_content)
+        
+        # Add basic styling
+        styled_html = f'''
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }}
+                h1, h2, h3 {{ color: #2c3e50; }}
+                h1 {{ border-bottom: 2px solid #2c3e50; padding-bottom: 10px; }}
+                ul, ol {{ margin-left: 20px; }}
+                code {{ background: #f8f9fa; padding: 2px 4px; border-radius: 4px; }}
+                blockquote {{ border-left: 4px solid #2c3e50; margin-left: 0; padding-left: 20px; }}
+            </style>
+        </head>
+        <body>
+            {html_content}
+        </body>
+        </html>
+        '''
+        
+        # PDF conversion options
+        options = {
+            'page-size': 'Letter',
+            'margin-top': '0.75in',
+            'margin-right': '0.75in',
+            'margin-bottom': '0.75in',
+            'margin-left': '0.75in',
+            'encoding': 'UTF-8',
+            'no-outline': None
+        }
+        
+        try:
+            # Try with installed wkhtmltopdf first
+            pdfkit.from_string(styled_html, pdf_path, options=options)
+        except OSError:
+            # If wkhtmltopdf is not in PATH, try with explicit path for Windows
+            config = pdfkit.configuration(wkhtmltopdf='C:\\Program Files\\wkhtmltopdf\\bin\\wkhtmltopdf.exe')
+            pdfkit.from_string(styled_html, pdf_path, options=options, configuration=config)
+        
+        return True
+    except Exception as e:
+        print(f"PDF conversion warning: {e}")
+        print("PDF generation failed. Please install wkhtmltopdf from: https://wkhtmltopdf.org/downloads.html")
+        return False
 
 def refine_report_presentation(initial_report_content, topic, config, timestamp, topic_slug):
     """Uses AI to refine the presentation of the generated report."""
@@ -1278,21 +1353,44 @@ def refine_report_presentation(initial_report_content, topic, config, timestamp,
         return None
 
     # --- Parse Refined Report ---
-    refined_report_text = parse_ai_tool_response(cleaned_response, "refinedReport")
+    refined_report_text = None
+    max_retries = 3
+    retry_delay = 5
 
-    if not refined_report_text or refined_report_text == clean_thinking_tags(cleaned_response):
-        print("\nWarning: Could not parse valid <refinedReport> content from the AI refinement response. Skipping refinement.")
-        log_to_file(f"Refinement Warning: Failed to parse <refinedReport> tag or content was empty.\nCleaned Response was:\n{clean_thinking_tags(cleaned_response)}")
-        if run_archive_dir:
-            failed_ref_report_path = os.path.join(run_archive_dir, "report_REFINED_FAILED_PARSE.txt")
-            try:
-                with open(failed_ref_report_path, 'w', encoding='utf-8') as frf: frf.write(clean_thinking_tags(cleaned_response) or "Original cleaned response was empty.")
-            except IOError: pass
-        return None # Indicate refinement failed
+    for attempt in range(max_retries):
+        refined_report_text = parse_ai_tool_response(cleaned_response, "refinedReport")
+        
+        # Check if parsing failed or returned nothing *or* returned the full response
+        if not refined_report_text or refined_report_text == clean_thinking_tags(cleaned_response):
+            if attempt < max_retries - 1:  # If we still have retries left
+                print(f"\nWarning: Could not parse <refinedReport> tag (Attempt {attempt + 1}/{max_retries})")
+                print(f"Waiting {retry_delay} seconds before retry...")
+                log_to_file(f"Refinement Warning: Parse attempt {attempt + 1} failed, retrying in {retry_delay}s")
+                time.sleep(retry_delay)
+                
+                # Try refining the report again
+                raw_response, cleaned_response = call_ai_api(refinement_prompt, config, tool_name=f"ReportRefinement_Retry_{attempt + 1}", timeout=1200)
+                
+                if not cleaned_response:
+                    print(f"\nError: Failed to get API response on refinement retry {attempt + 1}")
+                    log_to_file(f"Refinement Error: API call failed on retry {attempt + 1}")
+                    continue
+            else:  # Last attempt failed
+                print("\nWarning: Could not parse valid <refinedReport> content after all retry attempts. Skipping refinement.")
+                log_to_file(f"Refinement Warning: Failed to parse <refinedReport> tag after {max_retries} attempts.\nLast Response:\n{clean_thinking_tags(cleaned_response)}")
+                if run_archive_dir:
+                    failed_ref_report_path = os.path.join(run_archive_dir, "report_REFINED_FAILED_PARSE.txt")
+                    try:
+                        with open(failed_ref_report_path, 'w', encoding='utf-8') as frf: frf.write(clean_thinking_tags(cleaned_response) or "Original cleaned response was empty.")
+                    except IOError: pass
+                return None  # Indicate refinement failed
+        else:  # Successfully parsed content
+            print(f"\nSuccessfully parsed refined report{' on retry ' + str(attempt) if attempt > 0 else ''}.")
+            break
 
     # --- Save Refined Report to Designated Folder ---
     # Directory: <script_run_directory>/outputs/
-    # Filename: <timestamp>_<topic_slug>_report.txt
+    # Filename: <timestamp>_<topic_slug>_report.[md|pdf]
     try:
         # Define the main output directory name
         output_dir_name = "outputs"
@@ -1302,17 +1400,26 @@ def refine_report_presentation(initial_report_content, topic, config, timestamp,
         os.makedirs(final_output_dir, exist_ok=True)
         print(f"Ensured output directory exists: {final_output_dir}")
 
-        # Construct the desired filename using timestamp and topic_slug
-        final_filename = f"{timestamp}_{topic_slug}_report.txt"
-        # Create the full path to the final file inside the 'outputs' directory
-        final_filepath = os.path.join(final_output_dir, final_filename)
+        # Construct the base filename using timestamp and topic_slug
+        base_filename = f"{timestamp}_{topic_slug}_report"
+        # Create paths for both markdown and PDF versions
+        markdown_filepath = os.path.join(final_output_dir, f"{base_filename}.md")
+        pdf_filepath = os.path.join(final_output_dir, f"{base_filename}.pdf")
 
-        with open(final_filepath, 'w', encoding='utf-8') as ff:
+        # Save markdown version
+        with open(markdown_filepath, 'w', encoding='utf-8') as ff:
             ff.write(refined_report_text)
 
-        print(f"Successfully saved refined report to: {final_filepath}")
-        log_to_file(f"Refined report saved successfully to: {final_filepath}")
-        return final_filepath # Return the path of the refined report
+        # Convert to PDF
+        try:
+            convert_markdown_to_pdf(refined_report_text, pdf_filepath)
+            print(f"Successfully saved refined report as:\nMarkdown: {markdown_filepath}\nPDF: {pdf_filepath}")
+            log_to_file(f"Refined report saved successfully as markdown and PDF:\n{markdown_filepath}\n{pdf_filepath}")
+            return [markdown_filepath, pdf_filepath]  # Return both paths when successful
+        except Exception as pdf_e:
+            print(f"Warning: PDF conversion failed: {pdf_e}")
+            log_to_file(f"PDF conversion failed: {pdf_e}")
+            return markdown_filepath  # Return markdown path if PDF fails
 
     except IOError as e:
         print(f"\nError: Could not save refined report to {final_filepath}: {e}")
