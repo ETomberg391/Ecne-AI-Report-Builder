@@ -6,7 +6,7 @@ Automated AI research report generation. Leverages web research (Google/Brave), 
 
 ## ✨ Features
 
-*   **Automated Environment Setup:** Includes an `Installer.sh` script to check prerequisites, set up a Python virtual environment, install dependencies, and guide through initial configuration.
+*   **Automated Environment Setup:** Includes installation scripts (`Installer.sh` for Linux, `Installer.ps1` for Windows) to check prerequisites, set up a Python virtual environment, install dependencies, and guide through initial configuration.
 *   **Flexible Data Sourcing:**
     *   Utilizes web search via Google Custom Search API or Brave Search API (requires API keys, Google = 100 free requests/day, Brave API = 2,000 free requests/month).
     *   Accepts direct website URLs for scraping.
@@ -24,7 +24,10 @@ Automated AI research report generation. Leverages web research (Google/Brave), 
 
 ## 🚀 Workflow Overview
 
-1.  **Setup:** Run `Installer.sh` to check dependencies, install required Python packages into a virtual environment (`host_venv`), and set up initial configuration files (`.env`, `ai_models.yml`).
+1.  **Setup:** Run the appropriate installer for your platform:
+    - Windows: `powershell -ExecutionPolicy Bypass -File .\Installer.ps1`
+    - Linux: `./Installer.sh`
+    This will check dependencies, install required packages, set up the virtual environment (`host_venv`), and configure necessary files (`.env`, `ai_models.yml`).
 2.  **Configuration:** Edit `.env` and `settings/llm_settings/ai_models.yml` to add necessary API keys (Google, Brave) and select the LLM model configuration.
 3.  **Activate Environment:** Activate the Python virtual environment: `source host_venv/bin/activate`.
 4.  **Generate Report:** Execute `report_builder.py` with command-line arguments specifying the topic, keywords (or other sources like `--direct-articles`, `--reference-docs`), and any desired options.
@@ -34,13 +37,17 @@ Automated AI research report generation. Leverages web research (Google/Brave), 
 
 ## ⚙️ Key Components
 
-*   **`Installer.sh`**:
-    *   Checks for core prerequisites (Git, Python 3, Pip).
-    *   Detects the Linux distribution or if using Windows 10/11, to attempt installation of optional dependencies like Chrome/ChromeDriver (used by Selenium for some scraping tasks).
-    *   Creates the Python virtual environment (`host_venv`).
-    *   Installs Python dependencies from `requirements_host.txt`.
-    *   Copies `settings/env.example` to `.env` if it doesn't exist.
-    *   Interactively prompts the user to configure API keys in `.env` and `settings/llm_settings/ai_models.yml`.
+*   **Installers (`Installer.sh` for Linux, `Installer.ps1` for Windows)**:
+    *   Check for core prerequisites (Git, Python 3, Pip)
+    *   Detect operating system and install optional dependencies:
+        - Windows: Uses winget or direct download for Chrome/ChromeDriver
+        - Linux: Uses package manager (apt, yum, pacman, zypper) for Chrome/ChromeDriver
+    *   Create Python virtual environment (`host_venv`)
+    *   Install Python dependencies from `requirements_host.txt`
+    *   Copy `settings/env.example` to `.env` if it doesn't exist
+    *   Interactively prompt for API keys configuration in:
+        - `.env` file
+        - `settings/llm_settings/ai_models.yml`
 *   **`report_builder.py`**:
     *   The main script that orchestrates the report generation process.
     *   Parses command-line arguments (`argparse`).
@@ -64,7 +71,7 @@ Automated AI research report generation. Leverages web research (Google/Brave), 
 
 ### Prerequisites
 
-*   Linux-based OS (Installer attempts OS detection for package managers like `apt`, `yum`, `pacman`, `zypper`). (Working on Windows 10/11 compatibility)
+*   Windows 10/11 or Linux-based OS (Installer supports both platforms)
 *   Git
 *   Python 3.8+ & Pip
 *   **(Optional)** Google Chrome/Chromium and matching ChromeDriver for Selenium features (Installer attempts to handle this).
@@ -78,25 +85,57 @@ Automated AI research report generation. Leverages web research (Google/Brave), 
 1.  **Clone the Repository:**
     ```bash
     git clone Ecne-AI-Report-Builder
-    cd Ecne_report_builder 
+    cd Ecne-AI-Report-Builder
     ```
 
 2.  **Run the Installer:**
-    *   Make the installer executable:
-        ```bash
-        chmod +x Installer.sh
-        ```
-    *   Execute the installer script:
-        ```bash
-        ./Installer.sh
-        ```
-    *   The script will check for prerequisites. Follow the prompts to install any missing dependencies and configure your API keys in the `.env` and `ai_models.yml` files when prompted.
+    
+    For Windows 10/11 (Run Command Prompt as Administrator):
+    ```cmd
+    powershell -ExecutionPolicy Bypass -File .\Installer.ps1
+    ```
+    
+    For Linux:
+    ```bash
+    chmod +x Installer.sh
+    ./Installer.sh
+    ```
+    
+    The installer will:
+    - Check prerequisites and install missing dependencies
+    - Set up Python virtual environment
+    - Configure API keys in `.env` and `ai_models.yml` files
+    - Install Chrome and ChromeDriver if needed
+
+3.  **Example Test Command:**
+    After installation, you can test the system with this example:
+    ```bash
+    # For Windows CMD:
+    host_venv\Scripts\activate.bat
+    # For Linux:
+    source host_venv/bin/activate
+
+    # Then run this test command:
+    python report_builder.py --topic "What are Precise reforges in Mabinogi?" --guidance "Please use the following documents to find out what are Precise Reforges, how to get them with all the Free to play mechanics, what's recommended methods to acquire, what's not recommended, what do precise reforges do exactly, and a small sub section of what are journeyman reforges." --reference-docs-folder research\Example_Docs_Folder --no-search
+    ```
 
 ---
 
 ## ▶️ Usage
 
 1.  **Activate Host Virtual Environment:**
+    
+    For Windows CMD:
+    ```cmd
+    host_venv\Scripts\activate.bat
+    ```
+    
+    For PowerShell:
+    ```powershell
+    .\host_venv\Scripts\Activate.ps1
+    ```
+    
+    For Linux:
     ```bash
     source host_venv/bin/activate
     ```
@@ -127,9 +166,15 @@ Automated AI research report generation. Leverages web research (Google/Brave), 
 3.  **Check Output:** Look for the `research_report.txt` file inside the `archive/` directory in the latest timestamped folder.
 
 4.  **Deactivate Environment:**
+    
+    The same command works for both Windows and Linux:
     ```bash
     deactivate
     ```
+
+Note: When specifying paths in commands, use:
+- Windows: backslashes (e.g., `research\Example_Docs_Folder`)
+- Linux: forward slashes (e.g., `research/Example_Docs_Folder`)
 
 ---
 
