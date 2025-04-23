@@ -58,17 +58,89 @@ print_info "Core prerequisites met."
 echo
 
 # --- Optional Chrome/ChromeDriver Installation ---
-print_info "Detecting Linux distribution for optional Chrome/ChromeDriver installation..."
+print_info "Detecting operating system for optional Chrome/ChromeDriver installation..."
+
+# Debug information
+print_info "OSTYPE: ${OSTYPE:-unknown}"
+print_info "uname -s: $(uname -s 2>/dev/null || echo unknown)"
+
+# Check if we're in WSL and set flags accordingly
+if grep -q Microsoft /proc/version 2>/dev/null; then
+    print_info "Windows Subsystem for Linux (WSL) detected."
+    print_info "Installing dependencies for WSL environment..."
+    OS_TYPE="linux"
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS_ID=$ID
+    fi
+fi
+
+# Check for Git Bash or native Windows environment
+if [[ -d "/mingw64" ]] || [[ -n "${MINGW_PREFIX:-}" ]] || [[ -n "${MSYSTEM:-}" ]] || \
+   [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]] || \
+   [[ -n "${SYSTEMROOT:-}" ]] || [[ -d "/c/Windows" ]] || [[ -d "/c/WINDOWS" ]]; then
+    print_info "Windows environment detected"
+    OS_TYPE="windows"
+    WIN_VER=$(powershell -Command "[System.Environment]::OSVersion.Version.Major" 2>/dev/null || echo "10")
+    if [ "$WIN_VER" = "10" ]; then
+        OS_ID="windows10"
+        print_info "Detected Windows 10"
+    elif [ "$WIN_VER" = "11" ]; then
+        OS_ID="windows11"
+        print_info "Detected Windows 11"
+    else
+        OS_ID="windows"
+        print_info "Detected Windows (version unknown)"
+    fi
+else
+    OS_TYPE=""
+fi
 OS_ID=""
 PKG_MANAGER=""
 INSTALL_CMD=""
 UPDATE_CMD=""
 CHROME_INSTALLED_VIA_PKG_MANAGER="false" # Flag to track if we used package manager
 
-if [ -f /etc/os-release ]; then
+# Check for Windows (more robust detection for Git Bash)
+if [[ "$OSTYPE" == "msys" ]] || \
+   [[ "$OSTYPE" == "cygwin" ]] || \
+   [[ -n "${SYSTEMROOT:-}" ]] || \
+   [[ -d "/c/Windows" ]] || \
+   [[ -d "/c/WINDOWS" ]] || \
+   [[ -n "$(command -v wmic 2>/dev/null)" ]] || \
+   [[ "$(uname -s 2>/dev/null)" =~ ^MINGW|^MSYS ]]; then
+    OS_TYPE="windows"
+    # Detect Windows version using PowerShell
+    WIN_VER=$(powershell -Command "[System.Environment]::OSVersion.Version.Major")
+    if [ "$WIN_VER" -eq "10" ]; then
+        OS_ID="windows10"
+        print_info "Detected Windows 10"
+    elif [ "$WIN_VER" -eq "11" ]; then
+        OS_ID="windows11"
+        print_info "Detected Windows 11"
+    else
+        OS_ID="windows"
+        print_info "Detected Windows (version unknown)"
+    fi
+    
+    # Check for package managers
+    if command -v winget &> /dev/null; then
+        PKG_MANAGER="winget"
+        INSTALL_CMD="winget install -e --accept-source-agreements --accept-package-agreements"
+        print_info "Found winget package manager"
+    elif command -v choco &> /dev/null; then
+        PKG_MANAGER="choco"
+        INSTALL_CMD="choco install -y"
+        print_info "Found Chocolatey package manager"
+    else
+        print_warning "No supported package manager found on Windows (winget or chocolatey)"
+    fi
+# Check for Linux
+elif [ -f /etc/os-release ]; then
+    OS_TYPE="linux"
     . /etc/os-release
     OS_ID=$ID
-    print_info "Detected OS ID: $OS_ID"
+    print_info "Detected Linux OS ID: $OS_ID"
 
     case "$OS_ID" in
         ubuntu|debian|linuxmint|pop|elementary|zorin)
@@ -127,24 +199,51 @@ fi
 setup_chromedriver() {
     print_info "Attempting manual ChromeDriver setup..."
     local browser_version=""
-    local browser_cmd=""
+    
+    if [ "$OS_TYPE" = "windows" ]; then
+        # Try to get Chrome version from Windows registry
+        if command -v powershell &> /dev/null; then
+            browser_version=$(powershell -Command "Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty '(Default)' | Split-Path -Leaf | & { \$ver = (Get-Item (Read-Host | Out-String).Trim()).VersionInfo.FileVersion; Write-Output \$ver.Split('.')[0] }" 2>/dev/null)
+            if [ -z "$browser_version" ]; then
+                # Try alternate registry path
+                browser_version=$(powershell -Command "Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty '(Default)' | Split-Path -Leaf | & { \$ver = (Get-Item (Read-Host | Out-String).Trim()).VersionInfo.FileVersion; Write-Output \$ver.Split('.')[0] }" 2>/dev/null)
+            fi
+        fi
 
-    if command -v google-chrome &> /dev/null; then
-        browser_cmd="google-chrome"
-    elif command -v chromium &> /dev/null; then
-        browser_cmd="chromium"
-    elif command -v chromium-browser &> /dev/null; then
-         browser_cmd="chromium-browser" # Some systems use this
+        if [ -z "$browser_version" ]; then
+            # Try Program Files paths directly
+            local chrome_paths=(
+                "/c/Program Files/Google/Chrome/Application/chrome.exe"
+                "/c/Program Files (x86)/Google/Chrome/Application/chrome.exe"
+            )
+            for chrome_path in "${chrome_paths[@]}"; do
+                if [ -f "$chrome_path" ]; then
+                    browser_version=$(powershell -Command "Write-Output (Get-Item '$chrome_path').VersionInfo.FileVersion.Split('.')[0]" 2>/dev/null)
+                    if [ -n "$browser_version" ]; then
+                        break
+                    fi
+                fi
+            done
+        fi
+    else
+        # Linux browser version detection
+        local browser_cmd=""
+        if command -v google-chrome &> /dev/null; then
+            browser_cmd="google-chrome"
+        elif command -v chromium &> /dev/null; then
+            browser_cmd="chromium"
+        elif command -v chromium-browser &> /dev/null; then
+            browser_cmd="chromium-browser"
+        fi
+
+        if [ -n "$browser_cmd" ]; then
+            browser_version=$($browser_cmd --version | grep -oP '(\d+)\.\d+\.\d+\.\d+' | head -n 1 | cut -d '.' -f 1 || echo "0")
+            print_info "Detected Browser ($browser_cmd) Major Version: $browser_version"
+        fi
     fi
 
-    if [ -n "$browser_cmd" ]; then
-         # Try to extract major version number
-         browser_version=$($browser_cmd --version | grep -oP '(\d+)\.\d+\.\d+\.\d+' | head -n 1 | cut -d '.' -f 1 || echo "0")
-         print_info "Detected Browser ($browser_cmd) Major Version: $browser_version"
-    else
-         print_warning "Could not find google-chrome or chromium command to determine version for manual ChromeDriver download."
-         print_warning "Please install ChromeDriver manually to match your installed Chrome/Chromium version."
-         return 1 # Indicate failure
+    if [ -z "$browser_version" ] || [ "$browser_version" = "0" ]; then
+        print_error "Could not detect Chrome/Chromium version for ChromeDriver download."
     fi
 
     if [ "$browser_version" == "0" ] || [ -z "$browser_version" ]; then
@@ -177,44 +276,93 @@ setup_chromedriver() {
     fi
     print_info "Latest available ChromeDriver version for Chrome $browser_version: $latest_chromedriver_version"
 
-    # Construct download URL (new JSON endpoint)
-    local download_url="https://storage.googleapis.com/chrome-for-testing-public/${latest_chromedriver_version}/linux64/chromedriver-linux64.zip"
+    # Set platform-specific variables
+    local platform_suffix="linux64"
+    local chromedriver_zip="chromedriver-linux64.zip"
+    local chromedriver_name="chromedriver"
+    local install_dir="/usr/local/bin"
+    
+    if [ "$OS_TYPE" = "windows" ]; then
+        platform_suffix="win64"
+        chromedriver_zip="chromedriver-win64.zip"
+        chromedriver_name="chromedriver.exe"
+        install_dir="/c/Windows"
+    fi
+
+    # Construct download URL
+    local download_url="https://storage.googleapis.com/chrome-for-testing-public/${latest_chromedriver_version}/${platform_suffix}/${chromedriver_zip}"
     print_info "Downloading ChromeDriver from: $download_url"
 
-    # Download and extract
-    set +e # Don't exit if wget/unzip fails
-    wget -q "$download_url" -O chromedriver_linux64.zip
-    if [ $? -ne 0 ]; then
-        print_error "Failed to download ChromeDriver zip file. Please check the URL or install manually."
-        rm -rf "$temp_dir" # Clean up temp dir
-        return 1
-    fi
+    if [ "$OS_TYPE" = "windows" ]; then
+        # Use PowerShell for Windows download and extraction
+        set +e
+        powershell -Command "
+            \$ErrorActionPreference = 'Stop'
+            Write-Host 'Downloading ChromeDriver...'
+            Invoke-WebRequest -Uri '$download_url' -OutFile '$chromedriver_zip'
+            
+            Write-Host 'Extracting ChromeDriver...'
+            Expand-Archive -Path '$chromedriver_zip' -DestinationPath . -Force
+            Remove-Item '$chromedriver_zip'
+            
+            # Find chromedriver.exe recursively
+            \$driverPath = Get-ChildItem -Recurse -Filter '$chromedriver_name' | Select-Object -First 1 -ExpandProperty FullName
+            if (\$driverPath) {
+                Write-Host 'Moving ChromeDriver to Windows directory...'
+                Copy-Item -Force \$driverPath '$install_dir/$chromedriver_name'
+                # Add to PATH if not already present
+                \$path = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+                if (\$path -notlike '*$install_dir*') {
+                    [Environment]::SetEnvironmentVariable('Path', \$path + ';$install_dir', 'Machine')
+                }
+            } else {
+                Write-Error 'ChromeDriver executable not found in extracted contents'
+                exit 1
+            }"
+        local ps_exit_code=$?
+        set -e
+        
+        if [ $ps_exit_code -ne 0 ]; then
+            print_error "Failed to download or install ChromeDriver using PowerShell."
+            rm -rf "$temp_dir"
+            return 1
+        fi
+    else
+        # Linux download and installation
+        set +e
+        wget -q "$download_url" -O "$chromedriver_zip"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to download ChromeDriver zip file. Please check the URL or install manually."
+            rm -rf "$temp_dir"
+            return 1
+        fi
 
-    unzip -o chromedriver_linux64.zip
-    if [ $? -ne 0 ]; then
-        print_error "Failed to unzip ChromeDriver archive."
-        rm -rf "$temp_dir" # Clean up temp dir
-        return 1
-    fi
-    set -e # Re-enable exit on error
+        unzip -o "$chromedriver_zip"
+        if [ $? -ne 0 ]; then
+            print_error "Failed to unzip ChromeDriver archive."
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        set -e
 
-    # Find the executable within the extracted folder (it's now inside a subfolder)
-    local chromedriver_path=$(find . -name chromedriver -type f -print -quit)
-    if [ -z "$chromedriver_path" ] || [ ! -f "$chromedriver_path" ]; then
-         print_error "Could not find 'chromedriver' executable within the downloaded zip archive."
-         rm -rf "$temp_dir" # Clean up temp dir
-         return 1
-    fi
-    print_info "Found chromedriver executable at: $chromedriver_path"
+        # Find and move the executable
+        local chromedriver_path=$(find . -name "$chromedriver_name" -type f -print -quit)
+        if [ -z "$chromedriver_path" ] || [ ! -f "$chromedriver_path" ]; then
+            print_error "Could not find '$chromedriver_name' executable within the downloaded zip archive."
+            rm -rf "$temp_dir"
+            return 1
+        fi
+        print_info "Found chromedriver executable at: $chromedriver_path"
 
-    # Install to /usr/local/bin with proper permissions
-    print_info "Moving chromedriver to /usr/local/bin/ (requires sudo)..."
-    sudo mv "$chromedriver_path" /usr/local/bin/chromedriver
-    sudo chown root:root /usr/local/bin/chromedriver
-    sudo chmod +x /usr/local/bin/chromedriver
+        # Install with proper permissions
+        print_info "Moving chromedriver to $install_dir (requires sudo)..."
+        sudo mv "$chromedriver_path" "$install_dir/$chromedriver_name"
+        sudo chown root:root "$install_dir/$chromedriver_name"
+        sudo chmod +x "$install_dir/$chromedriver_name"
+    fi
 
     # Cleanup
-    cd "$ORIGINAL_DIR" # Go back to original dir
+    cd "$ORIGINAL_DIR"
     rm -rf "$temp_dir"
 
     print_info "Manual ChromeDriver setup attempt complete."
@@ -252,6 +400,24 @@ if [ -n "$PKG_MANAGER" ] && [ -n "$INSTALL_CMD" ]; then
         INSTALL_EXIT_CODE=0
 
         case "$PKG_MANAGER" in
+            winget)
+                # Install Google Chrome using winget
+                print_info "Attempting to install Google Chrome using winget..."
+                $INSTALL_CMD Google.Chrome
+                INSTALL_EXIT_CODE=$?
+                if [ $INSTALL_EXIT_CODE -eq 0 ]; then
+                    CHROME_INSTALLED_VIA_PKG_MANAGER="true"
+                fi
+                ;;
+            choco)
+                # Install Google Chrome using chocolatey
+                print_info "Attempting to install Google Chrome using chocolatey..."
+                $INSTALL_CMD googlechrome
+                INSTALL_EXIT_CODE=$?
+                if [ $INSTALL_EXIT_CODE -eq 0 ]; then
+                    CHROME_INSTALLED_VIA_PKG_MANAGER="true"
+                fi
+                ;;
             apt)
                 # Install Google Chrome (adds repo)
                 print_info "Attempting to install Google Chrome Stable via official repository..."
@@ -269,7 +435,7 @@ if [ -n "$PKG_MANAGER" ] && [ -n "$INSTALL_CMD" ]; then
                 CHROME_INSTALLED_VIA_PKG_MANAGER="true"
                 ;;
             pacman)
-                 # Use --needed to only install if missing or outdated
+                # Use --needed to only install if missing or outdated
                 sudo $INSTALL_CMD --needed chromium chromium-driver
                 INSTALL_EXIT_CODE=$?
                 CHROME_INSTALLED_VIA_PKG_MANAGER="true"
@@ -315,6 +481,131 @@ else
 fi
 echo
 
+# --- Install wkhtmltopdf ---
+print_info "Checking wkhtmltopdf installation..."
+
+install_wkhtmltopdf() {
+    if command -v wkhtmltopdf &> /dev/null; then
+        print_info "wkhtmltopdf is already installed."
+        return 0
+    fi
+
+    print_info "Installing wkhtmltopdf..."
+    
+    case "$OS_ID" in
+        debian|ubuntu)
+            local version=""
+            local arch="amd64"
+            
+            # Determine version based on distribution and release
+            case "$VERSION_ID" in
+                "11"|"bullseye") version="0.12.7-1.bullseye";;
+                "10"|"buster") version="0.12.7-1.buster";;
+                "9"|"stretch") version="0.12.7-1.stretch";;
+                "22.04"|"jammy") version="0.12.7-1.jammy";;
+                "20.04"|"focal") version="0.12.7-1.focal";;
+                "18.04"|"bionic") version="0.12.7-1.bionic";;
+                "16.04"|"xenial") version="0.12.7-1.xenial";;
+                *)
+                    print_error "Unsupported Debian/Ubuntu version: $VERSION_ID"
+                    return 1
+                    ;;
+            esac
+            
+            local download_url="https://github.com/wkhtmltopdf/packaging/releases/download/0.12.7-1/wkhtmltox_${version}_${arch}.deb"
+            local temp_deb="/tmp/wkhtmltopdf.deb"
+            
+            print_info "Downloading wkhtmltopdf package from: $download_url"
+            if ! wget -q -O "$temp_deb" "$download_url"; then
+                print_error "Failed to download wkhtmltopdf package"
+                return 1
+            fi
+            
+            print_info "Installing wkhtmltopdf package..."
+            if ! sudo dpkg -i "$temp_deb"; then
+                sudo apt-get install -f -y # Try to fix broken dependencies
+                if ! sudo dpkg -i "$temp_deb"; then
+                    print_error "Failed to install wkhtmltopdf package"
+                    rm -f "$temp_deb"
+                    return 1
+                fi
+            fi
+            rm -f "$temp_deb"
+            ;;
+            
+        fedora|centos|rhel|almalinux)
+            local arch="x86_64"
+            local version="0.12.7-1"
+            
+            if [[ "$OS_ID" == "almalinux" ]]; then
+                if [[ "$VERSION_ID" == "9" ]]; then
+                    version="0.12.7-1.almalinux9"
+                elif [[ "$VERSION_ID" == "8" ]]; then
+                    version="0.12.7-1.almalinux8"
+                fi
+            elif [[ "$OS_ID" == "centos" ]]; then
+                if [[ "$VERSION_ID" == "7" ]]; then
+                    version="0.12.7-1.centos7"
+                elif [[ "$VERSION_ID" == "6" ]]; then
+                    version="0.12.7-1.centos6"
+                fi
+            fi
+            
+            local download_url="https://github.com/wkhtmltopdf/packaging/releases/download/0.12.7-1/wkhtmltox-${version}.${arch}.rpm"
+            local temp_rpm="/tmp/wkhtmltopdf.rpm"
+            
+            print_info "Downloading wkhtmltopdf package from: $download_url"
+            if ! wget -q -O "$temp_rpm" "$download_url"; then
+                print_error "Failed to download wkhtmltopdf package"
+                return 1
+            fi
+            
+            print_info "Installing wkhtmltopdf package..."
+            if ! sudo rpm -Uvh "$temp_rpm"; then
+                print_error "Failed to install wkhtmltopdf package"
+                rm -f "$temp_rpm"
+                return 1
+            fi
+            rm -f "$temp_rpm"
+            ;;
+            
+        "opensuse-leap")
+            print_info "Installing wkhtmltopdf from openSUSE repository..."
+            sudo zypper install -y wkhtmltopdf
+            ;;
+            
+        "arch"|"manjaro")
+            print_info "Installing wkhtmltopdf from Arch repository..."
+            sudo pacman -S --noconfirm wkhtmltopdf
+            ;;
+            
+        *)
+            print_error "Unsupported distribution for automated wkhtmltopdf installation: $OS_ID"
+            print_error "Please install wkhtmltopdf manually from https://wkhtmltopdf.org/downloads.html"
+            return 1
+            ;;
+    esac
+    
+    # Verify installation
+    if command -v wkhtmltopdf &> /dev/null; then
+        print_info "wkhtmltopdf installed successfully."
+        print_info "Version: $(wkhtmltopdf --version)"
+        return 0
+    else
+        print_error "wkhtmltopdf installation verification failed."
+        return 1
+    fi
+}
+
+read -p "Do you want to install wkhtmltopdf for PDF report generation? [Y/n]: " INSTALL_WKHTMLTOPDF
+INSTALL_WKHTMLTOPDF=$(echo "$INSTALL_WKHTMLTOPDF" | tr '[:upper:]' '[:lower:]')
+if [[ "$INSTALL_WKHTMLTOPDF" != "n" ]]; then
+    install_wkhtmltopdf
+else
+    print_info "Skipping wkhtmltopdf installation."
+fi
+echo
+
 # --- Setup Host Python Environment ---
 print_info "Setting up Python virtual environment ('host_venv') for report_builder.py..."
 
@@ -327,9 +618,23 @@ else
 fi
 
 print_info "Activating venv and installing dependencies from requirements_host.txt..."
+
+# Set platform-specific paths
+if [ "$OS_TYPE" = "windows" ]; then
+    VENV_ACTIVATE="./host_venv/Scripts/activate"
+    # Ensure Windows-style path handling in MSYS2/Git Bash
+    export MSYS2_ARG_CONV_EXCL="*"
+else
+    VENV_ACTIVATE="./host_venv/bin/activate"
+fi
+
 # Use subshell to activate, install, and deactivate without affecting parent script's environment
 (
-    source "./host_venv/bin/activate"
+    if [ ! -f "$VENV_ACTIVATE" ]; then
+        print_error "Virtual environment activation script not found at: $VENV_ACTIVATE"
+    fi
+
+    source "$VENV_ACTIVATE"
     print_info "Upgrading pip in host venv..."
     $PIP_CMD install --upgrade pip
 
@@ -472,11 +777,24 @@ echo " Setup Complete! "
 echo "---------------------------------------------"
 echo
 echo "This script has set up the basic environment required for 'report_builder.py'."
+
+# Add WSL-specific notes if in WSL environment
+if grep -q Microsoft /proc/version 2>/dev/null; then
+    echo
+    echo "NOTE: WSL Environment Detected"
+    echo "- Chrome/ChromeDriver: Use Windows Chrome installation"
+    echo "- PDF Generation: wkhtmltopdf installed in WSL will work natively"
+    echo "- Browser automation will use Windows Chrome through WSL integration"
+fi
 echo
 echo "Next Steps:"
 echo
 echo "1. Activate the virtual environment before running the script:"
-echo "   source ./host_venv/bin/activate"
+if [ "$OS_TYPE" = "windows" ]; then
+    echo "   source ./host_venv/Scripts/activate"
+else
+    echo "   source ./host_venv/bin/activate"
+fi
 echo
 echo "2. Run the report builder script (example):"
 echo "   ${PYTHON_CMD} report_builder.py --topic \"Artificial Intelligence in Healthcare\" --keywords \"AI diagnostics, machine learning drug discovery\""
@@ -487,6 +805,9 @@ echo "   - ${ORIGINAL_DIR}/settings/llm_settings/ai_models.yml (if modified)"
 echo
 echo "4. Verify Chrome/Chromium and a compatible ChromeDriver are installed if you rely on Selenium features."
 echo
-echo "5. To deactivate the environment when finished:"
+echo "5. PDF report generation requires wkhtmltopdf. If you did not install it during setup,"
+echo "   install it manually from https://wkhtmltopdf.org/downloads.html"
+echo
+echo "6. To deactivate the environment when finished:"
 echo "   deactivate"
 echo
