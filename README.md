@@ -205,6 +205,11 @@ Note: When specifying paths in commands, use:
 
 ---
 
+**What's Next?:**
+
+*   Looking into implementing Dev GUI option similar to the Podcaster project I have, complete with environment editing to set the .env and ai_models.yml, and a full wau to show the files added as context, the direct links to search, the topic, keywords, and guidance instructions.
+---
+
 ## 📜 License
 
 Licensed under Apache 2.0
