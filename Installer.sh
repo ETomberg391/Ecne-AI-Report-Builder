@@ -760,8 +760,49 @@ if [[ "$USE_GEMINI" != "n" ]]; then
     AI_MODELS_PATH="${ORIGINAL_DIR}/settings/llm_settings/ai_models.yml"
     if [ -f "$AI_MODELS_PATH" ]; then
         # Use # as sed delimiter
-        sed -i "s#api_key: \"Somethingsomethinggminigapikey\"#api_key: \"${GEMINI_API_KEY}\"#g" "$AI_MODELS_PATH"
-        print_info "Updated Gemini API key in $AI_MODELS_PATH"
+        # Use awk for more robust YAML modification
+        temp_yaml="${AI_MODELS_PATH}.tmp" # Removed 'local' keyword
+        awk -v key="$GEMINI_API_KEY" '
+        BEGIN { in_gemini_block = 0; found_key = 0 }
+        /^gemini_flash:/ { in_gemini_block = 1 }
+        /^[[:alnum:]_-]+:/ && !/^gemini_flash:/ { in_gemini_block = 0 }
+        
+        in_gemini_block && /^[[:space:]]*api_key:/ {
+            printf "  api_key: \"%s\"\n", key
+            found_key = 1
+            next
+        }
+        
+        { print }
+        
+        END {
+            if (found_key == 0) {
+                print "Error: Could not find api_key line in gemini_flash section"
+                exit 1
+            }
+        }
+        ' "$AI_MODELS_PATH" > "$temp_yaml"
+
+        AWK_EXIT_CODE=$?
+        if [ $AWK_EXIT_CODE -eq 0 ] && [ -s "$temp_yaml" ]; then
+            # Compare the files to ensure changes were made
+            if diff "$AI_MODELS_PATH" "$temp_yaml" >/dev/null; then
+                print_warning "No changes detected in the YAML file. API key might not have been updated."
+                rm -f "$temp_yaml"
+            else
+                mv "$temp_yaml" "$AI_MODELS_PATH"
+                print_info "Successfully updated Gemini API key in $AI_MODELS_PATH"
+                # Verify the key was actually written
+                if grep -q "api_key: \"${GEMINI_API_KEY}\"" "$AI_MODELS_PATH"; then
+                    print_info "Verified API key was written correctly"
+                else
+                    print_warning "API key verification failed - key may not have been written correctly"
+                fi
+            fi
+        else
+            print_warning "awk command failed (exit code: $AWK_EXIT_CODE) or produced empty output. File not modified."
+            rm -f "$temp_yaml" # Clean up temp file on failure
+        fi
     else
          print_warning "$AI_MODELS_PATH not found. Could not set Gemini API key."
     fi
