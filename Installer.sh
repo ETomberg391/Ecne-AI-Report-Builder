@@ -436,7 +436,7 @@ if [ -n "$PKG_MANAGER" ] && [ -n "$INSTALL_CMD" ]; then
                 ;;
             pacman)
                 # Use --needed to only install if missing or outdated
-                sudo $INSTALL_CMD --needed chromium chromium-driver
+                sudo $INSTALL_CMD --needed chromium chromedriver
                 INSTALL_EXIT_CODE=$?
                 CHROME_INSTALLED_VIA_PKG_MANAGER="true"
                 ;;
@@ -464,11 +464,20 @@ if [ -n "$PKG_MANAGER" ] && [ -n "$INSTALL_CMD" ]; then
              print_warning "ChromeDriver command not found after package manager installation attempt."
         fi
 
-        # Attempt manual download if Google Chrome was installed via apt OR if chromedriver is still missing
-        if [[ "$GOOGLE_CHROME_INSTALLED_FLAG" == "true" ]] || [[ "$CHROMEDRIVER_FOUND" == "false" ]]; then
-             print_warning "Attempting manual ChromeDriver download/setup as fallback or required step..."
-             setup_chromedriver # Attempt manual setup
-             # setup_chromedriver prints its own success/failure
+        # Attempt manual download if the package manager install failed OR if specifically using apt which doesn't bundle chromedriver
+        if [ $INSTALL_EXIT_CODE -ne 0 ] || [[ "$PKG_MANAGER" == "apt" ]]; then
+            if [ $INSTALL_EXIT_CODE -ne 0 ]; then
+                print_warning "Package manager installation failed (Exit Code: $INSTALL_EXIT_CODE). Attempting manual ChromeDriver download/setup..."
+            else
+                # This case is mainly for apt where google-chrome doesn't include chromedriver
+                print_warning "Attempting manual ChromeDriver download/setup as required step for this package manager..."
+            fi
+            setup_chromedriver # Attempt manual setup
+            # setup_chromedriver prints its own success/failure
+        elif [[ "$CHROMEDRIVER_FOUND" == "false" ]]; then
+             # If pkg manager succeeded but command still not found (less likely but possible)
+             print_warning "ChromeDriver command still not found after successful package manager run. Attempting manual setup..."
+             setup_chromedriver
         fi
 
     else
@@ -574,11 +583,45 @@ install_wkhtmltopdf() {
             sudo zypper install -y wkhtmltopdf
             ;;
             
-        "arch"|"manjaro")
-            print_info "Installing wkhtmltopdf from Arch repository..."
-            sudo pacman -S --noconfirm wkhtmltopdf
+        "arch"|"manjaro"|"endeavouros"|"garuda")
+            print_info "Checking wkhtmltopdf in Arch repositories..."
+            # Check if wkhtmltopdf exists in standard repos first
+            if pacman -Si wkhtmltopdf &> /dev/null; then
+                 print_info "Found wkhtmltopdf in standard repositories. Installing..."
+                 sudo pacman -S --noconfirm wkhtmltopdf
+            else
+                 print_warning "wkhtmltopdf not found in standard Arch repositories."
+                 local AUR_HELPER=""
+                 if command -v yay &> /dev/null; then
+                     AUR_HELPER="yay"
+                 elif command -v paru &> /dev/null; then
+                     AUR_HELPER="paru"
+                 fi
+
+                 if [ -n "$AUR_HELPER" ]; then
+                     print_warning "Detected AUR helper: $AUR_HELPER."
+                     read -p "Do you want to attempt installing 'wkhtmltopdf-static' from the AUR using $AUR_HELPER? [y/N]: " INSTALL_AUR_WKHTMLTOPDF
+                     INSTALL_AUR_WKHTMLTOPDF=$(echo "$INSTALL_AUR_WKHTMLTOPDF" | tr '[:upper:]' '[:lower:]')
+                     if [[ "$INSTALL_AUR_WKHTMLTOPDF" == "y" ]]; then
+                         print_info "Attempting installation via $AUR_HELPER..."
+                         # Use the detected helper, target wkhtmltopdf-static
+                         if $AUR_HELPER -S --noconfirm wkhtmltopdf-static; then
+                             print_info "AUR installation successful."
+                         else
+                             print_error "AUR installation with $AUR_HELPER failed. Please install wkhtmltopdf manually."
+                             return 1
+                         fi
+                     else
+                         print_error "Skipping AUR installation. Please install wkhtmltopdf manually (e.g., from AUR: yay -S wkhtmltopdf-static)."
+                         return 1
+                     fi
+                 else
+                     print_error "No common AUR helper (yay/paru) found. Please install wkhtmltopdf manually (e.g., from AUR: yay -S wkhtmltopdf-static)."
+                     return 1
+                 fi
+            fi
             ;;
-            
+
         *)
             print_error "Unsupported distribution for automated wkhtmltopdf installation: $OS_ID"
             print_error "Please install wkhtmltopdf manually from https://wkhtmltopdf.org/downloads.html"
