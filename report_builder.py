@@ -335,6 +335,7 @@ def parse_arguments():
     # Added argument to skip refinement
     parser.add_argument("--skip-refinement", action="store_true", help="Skip the final report refinement step.")
 
+    parser.add_argument("--no-reddit", action="store_true", help="Exclude Reddit sources from discovery and scraping.")
     args = parser.parse_args()
 
     if args.per_keyword_results is None: args.per_keyword_results = args.max_web_results
@@ -373,7 +374,7 @@ def parse_arguments():
 
 # --- Research Phase ---
 
-def discover_sources(keywords_list, config):
+def discover_sources(keywords_list, config, args): # Add args parameter
     """Uses AI to discover relevant websites and subreddits."""
     print("\nDiscovering sources via AI...")
     discovery_keyword_str = " | ".join(keywords_list)
@@ -421,34 +422,52 @@ def discover_sources(keywords_list, config):
     validated_sources = []
     for source in sources_list:
         is_valid = False
-        print(f"  - Checking: {source}...", end="")
+        check_target_display = source # What to display initially
+
         try:
-            if source.startswith('r/'): # Assume valid if AI suggested
+            if source.startswith('r/'):
                 is_valid = True
-                print(" OK (Subreddit)")
-            else: # Check website HEAD request
-                # url_to_check = source if source.startswith(('http://', 'https://')) else f'http://{source}' # Already normalized above
-                url_to_check = source
-                response = requests.head(url_to_check, headers={'User-Agent': random.choice(USER_AGENTS)}, timeout=10, allow_redirects=True)
+                print(f"  - Checking: {check_target_display}... OK (Subreddit)")
+            elif source.startswith(('http://', 'https://')):
+                parsed_uri = urllib.parse.urlparse(source)
+                # Construct base URL (scheme + domain) ensuring trailing slash
+                base_url = f"{parsed_uri.scheme}://{parsed_uri.netloc}/"
+                check_target_display = f"Base Domain {base_url} (from {source})" # More descriptive display
+
+                print(f"  - Checking: {check_target_display}...", end="")
+                # Use base_url for the actual check
+                response = requests.head(base_url, headers={'User-Agent': random.choice(USER_AGENTS)}, timeout=10, allow_redirects=True)
                 if response.status_code < 400:
                     is_valid = True
                     print(f" OK (Status: {response.status_code})")
                 else:
                     print(f" Failed (Status: {response.status_code})")
+            else:
+                 # Should not happen due to normalization earlier, but handle defensively
+                 print(f"  - Checking: {check_target_display}... Failed (Invalid Format)")
+
         except requests.exceptions.RequestException as e:
-             # Catch connection errors, SSL errors etc.
-             # Treat as invalid for scraping purposes
-             print(f" Failed (Error: {type(e).__name__})") # Log error type
+             # Add the print prefix here for consistency with other failure messages
+             print(f" Failed (Error: {type(e).__name__})")
         except Exception as e:
+             # Add the print prefix here for consistency
             print(f" Failed (Unexpected Validation Error: {e})")
 
         if is_valid:
-            validated_sources.append(source)
+            validated_sources.append(source) # Add original source if base domain is valid
         time.sleep(random.uniform(0.3, 0.8)) # Short delay
 
     print(f"Validation complete. Using {len(validated_sources)} accessible sources.")
     log_to_file(f"Source Discovery: Validated {len(validated_sources)} sources: {validated_sources}")
-    return validated_sources
+
+    # --- Filter Reddit sources if --no-reddit is specified ---
+    if args.no_reddit:
+        non_reddit_sources = [src for src in validated_sources if not (src.startswith('r/') or 'reddit.com/r/' in src)]
+        print(f"Filtering Reddit sources due to --no-reddit flag. Using {len(non_reddit_sources)} non-Reddit sources.")
+        log_to_file(f"Source Discovery: Filtered out Reddit sources. Using {len(non_reddit_sources)} sources: {non_reddit_sources}")
+        return non_reddit_sources
+    else:
+        return validated_sources
 
 
 # --- Search API Functions ---
@@ -551,9 +570,15 @@ def search_brave_api(query, config, num_results, from_date=None, to_date=None):
     if freshness_param: params['freshness'] = freshness_param
 
     try:
+        # Log the exact request details before sending
+        prepared_request = requests.Request('GET', search_url, headers=headers, params=params).prepare()
+        log_to_file(f"Brave API Request Details:\n  URL: {prepared_request.url}\n  Headers: {prepared_request.headers}")
+        print(f"    - Requesting URL: {prepared_request.url}") # Also print URL for easier debugging
+
         response = requests.get(search_url, headers=headers, params=params, timeout=20)
         response.raise_for_status()
         search_data = response.json()
+        log_to_file(f"Brave API Raw Response Body:\n{json.dumps(search_data, indent=2)}") # Log the raw JSON response
 
         if 'web' in search_data and 'results' in search_data['web']:
             urls = [item['url'] for item in search_data['web']['results'] if 'url' in item]
@@ -609,7 +634,8 @@ def scrape_website_url(url):
             content += f"\nBody:\n{text}"
             print(f"        - Success: Scraped content ({len(text)} chars).")
             log_to_file(f"Website scrape success: {url} ({len(text)} chars)")
-            return content.strip()
+            # Return dict with url and content
+            return {"url": url, "content": content.strip()}
         elif text:
             print("        - Warning: Scraped text too short, skipping.")
             log_to_file(f"Website scrape warning (too short): {url} ({len(text)} chars)")
@@ -664,7 +690,7 @@ def setup_selenium_driver():
 def scrape_content(sources_or_urls, direct_article_urls, args, config):
     """Scrapes content from discovered/provided sources or direct URLs."""
     print(f"\n--- Starting Content Scraping Phase ---")
-    scraped_texts = []
+    scraped_data = [] # Changed from scraped_texts to store dicts
     seen_urls_global = set()
     direct_urls_set = set(direct_article_urls or [])
 
@@ -686,12 +712,18 @@ def scrape_content(sources_or_urls, direct_article_urls, args, config):
 
                 scraped_text = scrape_website_url(item)
                 if scraped_text:
-                    scraped_texts.append(scraped_text)
+                    scraped_data.append(scraped_text) # Use scraped_data
                     seen_urls_global.add(item)
                     source_texts_count += 1
 
             # --- Handle Reddit Sources (Selenium) ---
             elif is_reddit_source:
+                # --- Check for --no-reddit flag ---
+                if args.no_reddit:
+                    print(f"  - Skipping Reddit source '{item}' because --no-reddit flag is set.")
+                    log_to_file(f"Scraping Skip: Skipped Reddit source {item} due to --no-reddit flag.")
+                    continue # Skip this item entirely
+
                 print(f"  - Type: Reddit Source")
                 if args.no_search:
                      print(f"  - Warning: Skipping Reddit source '{item}' because --no-search is active.")
@@ -714,7 +746,7 @@ def scrape_content(sources_or_urls, direct_article_urls, args, config):
                      continue # Skip this source if driver fails
 
                 all_post_links_for_subreddit = set()
-                reddit_texts = []
+                reddit_data = [] # Changed from reddit_texts
                 wait = WebDriverWait(driver, 20) # 20 sec timeout for elements
 
                 try:
@@ -817,7 +849,8 @@ def scrape_content(sources_or_urls, direct_article_urls, args, config):
                             min_length = 100 # Lower min length for Reddit posts
 
                             if content_length > min_length:
-                                reddit_texts.append(full_content.strip())
+                                # Append dict with url and content for consistency
+                                reddit_data.append({"url": post_url, "content": full_content.strip()})
                                 seen_urls_global.add(post_url)
                                 source_texts_count += 1 # Counts successful POST scrapes
                                 print(f"        - Success: Scraped content ({content_length} chars).")
@@ -843,7 +876,7 @@ def scrape_content(sources_or_urls, direct_article_urls, args, config):
                         print("    - Quitting Selenium WebDriver for this source.")
                         driver.quit()
 
-                scraped_texts.extend(reddit_texts) # Add all collected texts for this subreddit
+                scraped_data.extend(reddit_data) # Add all collected dicts for this subreddit
 
             # --- Handle Website Sources (Search API + Newspaper4k) ---
             elif is_website_source:
@@ -941,7 +974,7 @@ def scrape_content(sources_or_urls, direct_article_urls, args, config):
                     print(f"      - URL {url_idx}: ", end="") # scrape_website_url will add details
                     scraped_text = scrape_website_url(url)
                     if scraped_text:
-                        scraped_texts.append(scraped_text)
+                        scraped_data.append(scraped_text) # Use scraped_data
                         seen_urls_global.add(url)
                         source_texts_count += 1
                     # scrape_website_url handles its own logging/printing
@@ -962,21 +995,31 @@ def scrape_content(sources_or_urls, direct_article_urls, args, config):
             print(f"--- Delaying {delay:.2f}s before next source ---")
             time.sleep(delay)
 
-    print(f"\n--- Finished Scraping Phase. Total unique content pieces gathered: {len(scraped_texts)} ---")
-    log_to_file(f"Scraping phase complete. Gathered {len(scraped_texts)} content pieces.")
-    return scraped_texts
+    print(f"\n--- Finished Scraping Phase. Total unique content pieces gathered: {len(scraped_data)} ---") # Use scraped_data
+    log_to_file(f"Scraping phase complete. Gathered {len(scraped_data)} content pieces.") # Use scraped_data
+    return scraped_data # Use scraped_data
 
 # --- Summarization Phase ---
 
-def summarize_content(scraped_texts, reference_docs, topic, config, args):
+def summarize_content(scraped_data, reference_docs, topic, config, args): # Renamed parameter here
     """
     Uses AI to summarize scraped content and optionally reference documents,
     assigning a relevance score to each.
     """
     content_to_process = []
-    # Add scraped texts
-    for idx, text in enumerate(scraped_texts):
-        content_to_process.append({"type": "scraped", "content": text, "source_index": idx + 1})
+    # Add scraped data (which are dictionaries)
+    for idx, data_item in enumerate(scraped_data): # Iterate over scraped_data (list of dicts)
+        content = data_item.get("content", "")
+        url = data_item.get("url", "")
+        if content and url: # Only add if we have both content and URL
+            content_to_process.append({
+                "type": "scraped",
+                "content": content,
+                "url": url, # Pass the URL along
+                "source_index": idx + 1 # Keep original index if needed
+            })
+        else:
+            log_to_file(f"Warning: Skipping scraped item index {idx+1} due to missing URL or content during summary prep.")
 
     # Add reference docs (conditionally based on summarize flag)
     ref_docs_for_summary = []
@@ -1006,7 +1049,14 @@ def summarize_content(scraped_texts, reference_docs, topic, config, args):
     for i, item in enumerate(content_to_process, 1):
         text = item["content"]
         item_type = item["type"]
-        item_source_id = item.get("path", f"Scraped_{item.get('source_index', i)}")
+        # Determine the source identifier based on type
+        if item_type == "scraped":
+            # Use the 'url' key added when building content_to_process
+            item_source_id = item.get("url", f"Scraped_URL_Missing_{i}") # Use i as fallback index
+        elif item_type == "reference":
+            item_source_id = item.get("path", f"Reference_Path_Missing_{i}")
+        else: # Should not happen
+            item_source_id = f"Unknown_Source_{i}"
 
         # Basic check for meaningful content length
         if len(text) < 100:
@@ -1044,41 +1094,78 @@ def summarize_content(scraped_texts, reference_docs, topic, config, args):
             f"<summaryScore>8</summaryScore>"
         )
 
-        # Use a reasonable timeout for summarization
-        raw_response, cleaned_response = call_ai_api(prompt, config, tool_name=f"Summary_{i}_{item_type}", timeout=180)
-
-        summary = "Error: Summarization Failed"
+        # --- Retry Logic for Summarization ---
+        max_retries = 3
+        retry_delay = 5 # seconds
+        summary = "Error: Summarization Failed (Unknown)"
         score = -1
         summary_details = {"type": item_type, "source_id": item_source_id} # Store type and source id
+        raw_response = None
+        cleaned_response = None
 
-        if cleaned_response:
+        for attempt in range(max_retries):
+            print(f"\rSummarizing & Scoring {i}/{total_pieces} ({item_type}: {os.path.basename(str(item_source_id))[:30]}...) (Attempt {attempt + 1}/{max_retries}) (Success: {successful_summaries})", end='', flush=True)
+
+            # Use a reasonable timeout for summarization
+            raw_response, cleaned_response = call_ai_api(prompt, config, tool_name=f"Summary_{i}_{item_type}_Attempt{attempt+1}", timeout=180)
+
+            if not cleaned_response:
+                log_to_file(f"Error: API call failed for Summary_{i} ({item_source_id}) on attempt {attempt + 1}.")
+                summary = f"Error: Could not summarize text piece {i} ({item_source_id}) (API call failed)"
+                score = -1
+                break # No point retrying if API call fails
+
+            # Try parsing
             parsed_summary = parse_ai_tool_response(cleaned_response, "toolScrapeSummary")
-            if parsed_summary == cleaned_response and '<toolScrapeSummary>' not in cleaned_response.lower():
-                 log_to_file(f"Error: Summary {i} ({item_source_id}) parsing failed - <toolScrapeSummary> tag missing.")
-                 summary = f"Error: Could not parse summary {i} ({item_source_id}) (<toolScrapeSummary> tag missing)"
+
+            # Check for the specific error: tag missing
+            is_tag_missing_error = (parsed_summary == cleaned_response and '<toolScrapeSummary>' not in cleaned_response.lower())
+
+            if is_tag_missing_error:
+                log_msg = f"Error: Summary {i} ({item_source_id}) parsing failed - <toolScrapeSummary> tag missing (Attempt {attempt + 1}/{max_retries})."
+                log_to_file(log_msg)
+                if attempt < max_retries - 1:
+                    print(f"\n{log_msg} Retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    continue # Go to the next attempt
+                else:
+                    # Last attempt failed for tag missing
+                    summary = f"Error: Could not parse summary {i} ({item_source_id}) (<toolScrapeSummary> tag missing after {max_retries} attempts)"
+                    score = -1
+                    break # Exit loop after final attempt failure
             elif not parsed_summary:
-                 log_to_file(f"Error: Summary {i} ({item_source_id}) parsing failed - No content found in <toolScrapeSummary> tag.")
-                 summary = f"Error: Could not parse summary {i} ({item_source_id}) (empty tag)"
+                # Handle empty tag error (no retry needed for this)
+                log_to_file(f"Error: Summary {i} ({item_source_id}) parsing failed - No content found in <toolScrapeSummary> tag.")
+                summary = f"Error: Could not parse summary {i} ({item_source_id}) (empty tag)"
+                score = -1
+                break # Exit loop, parsing failed differently
             else:
-                 summary = parsed_summary
+                # Success! Summary parsed correctly
+                summary = parsed_summary
+                # Now parse the score
+                score_match = re.search(r'<summaryScore>(\d{1,2})</summaryScore>', cleaned_response, re.IGNORECASE)
+                if score_match:
+                    try:
+                        parsed_score = int(score_match.group(1))
+                        if 0 <= parsed_score <= 10:
+                            score = parsed_score
+                            successful_summaries += 1 # Increment here on successful parse + score
+                        else:
+                            log_to_file(f"Warning: Summary {i} ({item_source_id}) score '{parsed_score}' out of range (0-10). Using -1.")
+                            score = -1 # Treat out-of-range score as invalid for threshold check later
+                    except ValueError:
+                        log_to_file(f"Warning: Could not parse summary {i} ({item_source_id}) score '{score_match.group(1)}'. Using -1.")
+                        score = -1
+                else:
+                    log_msg = f"Warning: Could not find/parse <summaryScore> tag for summary {i} ({item_source_id}). Using -1."
+                    print(f"\n{log_msg}") # Print warning to console as well
+                    log_to_file(log_msg)
+                    # Log the actual response when score parsing fails to help debug
+                    log_to_file(f"--- AI Response Causing Score Parse Failure (Summary {i}) ---\n{cleaned_response}\n--- End Response ---")
+                    score = -1
+                break # Exit loop on successful summary parse (even if score failed)
 
-            score_match = re.search(r'<summaryScore>(\d{1,2})</summaryScore>', cleaned_response, re.IGNORECASE)
-            if score_match:
-                try:
-                    parsed_score = int(score_match.group(1))
-                    if 0 <= parsed_score <= 10:
-                        score = parsed_score
-                        successful_summaries += 1
-                    else:
-                        log_to_file(f"Warning: Summary {i} ({item_source_id}) score '{parsed_score}' out of range (0-10). Using -1.")
-                except ValueError:
-                    log_to_file(f"Warning: Could not parse summary {i} ({item_source_id}) score '{score_match.group(1)}'. Using -1.")
-            else:
-                 log_to_file(f"Warning: Could not find/parse <summaryScore> tag for summary {i} ({item_source_id}). Using -1.")
-
-        else:
-            log_to_file(f"Error: API call failed for Summary_{i} ({item_source_id})")
-            summary = f"Error: Could not summarize text piece {i} ({item_source_id}) (API call failed)"
+        # --- End Retry Logic ---
 
         summary_details.update({'summary': summary, 'score': score})
         summaries_with_scores.append(summary_details)
@@ -1112,10 +1199,11 @@ def generate_report(summaries_with_scores, reference_docs_content, topic, config
     num_summaries_used = len(valid_summaries)
 
     if valid_summaries:
-        top_summaries = sorted(valid_summaries, key=lambda x: x['score'], reverse=True)
+        top_summaries = sorted(valid_summaries, key=lambda x: x['score'], reverse=True) # Assign here
         print(f"Using {num_summaries_used} summaries (score >= {args.score_threshold}) for report generation.")
         log_to_file(f"Report Gen: Using {num_summaries_used} summaries meeting score threshold {args.score_threshold}.")
         combined_summaries_text = "\n\n".join([
+            # Use source_id which now correctly holds URL for scraped items or path for reference docs
             f"Summary {i+1} (Source: {s['source_id']}, Type: {s['type']}, Score: {s['score']}):\n{s['summary']}"
             for i, s in enumerate(top_summaries)
         ])
@@ -1216,6 +1304,22 @@ def generate_report(summaries_with_scores, reference_docs_content, topic, config
             print(f"\nSuccessfully parsed report content{' on retry ' + str(attempt) if attempt > 0 else ''}.")
             break
 
+    # --- Build References String ---
+    references_string = "References:\n"
+    # Use top_summaries as it's the sorted list used for context and meets the score threshold
+    if 'top_summaries' in locals() and top_summaries:
+         for i, s in enumerate(top_summaries):
+             source_id = s.get('source_id')
+             if source_id:
+                 references_string += f"Summary_{i+1} = {source_id}\n"
+             else:
+                 # Log a warning if a summary used in the report context is missing a source_id
+                 log_to_file(f"Warning: Summary {i+1} used in report context is missing 'source_id'. Cannot add to references.")
+    else:
+        # This case handles when valid_summaries (and thus top_summaries) was empty
+        references_string += "(No summaries met the score threshold to be included in the report)\n"
+    # --- End Build References String ---
+
     # Save the initial, unrefined report to the archive
     initial_report_filename = "research_report_initial_raw.txt" # Name indicating it's the raw version
     initial_report_filepath = os.path.join(run_archive_dir, initial_report_filename) if run_archive_dir else initial_report_filename
@@ -1223,10 +1327,13 @@ def generate_report(summaries_with_scores, reference_docs_content, topic, config
     try:
         with open(initial_report_filepath, 'w', encoding='utf-8') as ef:
             ef.write(report_text)
-        print(f"Saved initial (unrefined) report to archive: {initial_report_filepath}")
-        log_to_file(f"Initial research report saved to archive: {initial_report_filepath}")
-        # Return BOTH the path and the content for the refinement step
-        return initial_report_filepath, report_text
+            ef.write("\n\n") # Add separation
+            ef.write(references_string) # Append references
+
+        print(f"Saved initial (unrefined) report with references to archive: {initial_report_filepath}")
+        log_to_file(f"Initial research report with references saved to archive: {initial_report_filepath}")
+        # Return path, content, and the list of summaries used for context
+        return initial_report_filepath, report_text, top_summaries
     except IOError as e:
         print(f"\nError: Could not save initial research report to {initial_report_filepath}: {e}")
         log_to_file(f"Report Saving Error: Failed to save initial report to {initial_report_filepath}: {e}")
@@ -1234,16 +1341,23 @@ def generate_report(summaries_with_scores, reference_docs_content, topic, config
         if run_archive_dir:
             try:
                 cwd_filename = initial_report_filename
-                with open(cwd_filename, 'w', encoding='utf-8') as ef_cwd: ef_cwd.write(report_text)
-                print(f"Saved initial report to {cwd_filename} (CWD fallback)")
-                log_to_file(f"Initial report saved to CWD fallback: {cwd_filename}")
-                return cwd_filename, report_text # Return path and content
+                # Write content + references to fallback file as well
+                with open(cwd_filename, 'w', encoding='utf-8') as ef_cwd:
+                    ef_cwd.write(report_text)
+                    ef_cwd.write("\n\n")
+                    ef_cwd.write(references_string)
+                print(f"Saved initial report with references to {cwd_filename} (CWD fallback)")
+                log_to_file(f"Initial report with references saved to CWD fallback: {cwd_filename}")
+                # Return path, content, and summaries used from fallback save
+                return cwd_filename, report_text, top_summaries
             except IOError as e_cwd:
                 print(f"\nError: Could not save initial report to CWD fallback path either: {e_cwd}")
                 log_to_file(f"Report Saving Error: Failed to save initial report to CWD fallback: {e_cwd}")
-                return None, None # Failed completely
+                # Return None for all if fallback fails
+                return None, None, None # Failed completely
         else: # No archive dir was set, fail saving
-             return None, None
+             # Return None for all if initial save fails without archive
+             return None, None, None
 
 def convert_markdown_to_pdf(markdown_content, pdf_path):
     """Convert markdown content to PDF using pdfkit/wkhtmltopdf."""
@@ -1296,7 +1410,7 @@ def convert_markdown_to_pdf(markdown_content, pdf_path):
         print("PDF generation failed. Please install wkhtmltopdf from: https://wkhtmltopdf.org/downloads.html")
         return False
 
-def refine_report_presentation(initial_report_content, topic, config, timestamp, topic_slug):
+def refine_report_presentation(initial_report_content, top_summaries, topic, config, timestamp, topic_slug):
     """Uses AI to refine the presentation of the generated report."""
     print("\n--- Starting Report Refinement Phase ---")
     log_to_file("Starting report refinement phase.")
@@ -1306,24 +1420,43 @@ def refine_report_presentation(initial_report_content, topic, config, timestamp,
         log_to_file("Refinement Error: Initial report content was empty.")
         return None # Cannot refine nothing
 
+    # --- Build References String for Refinement Prompt ---
+    references_section_for_prompt = "## References\n"
+    if top_summaries:
+         for i, s in enumerate(top_summaries):
+             source_id = s.get('source_id')
+             if source_id:
+                 references_section_for_prompt += f"{i+1}. {source_id}\n" # Use numbered list for final report
+             else:
+                 log_to_file(f"Refinement Warning: Summary {i+1} missing 'source_id'. Cannot add to references section.")
+    else:
+        references_section_for_prompt += "(No summaries met the score threshold to be included in the report)\n"
+    # --- End Build References String ---
+
     # --- Construct Refinement Prompt ---
     refinement_prompt = (
         f"You are an AI assistant specializing in document presentation and formatting.\n"
         f"**Task:** Refine the following research report text to significantly improve its presentation for a supervisor. Focus on enhancing readability, structure, scannability, and visual appeal using standard text formatting. The topic is '{topic}'.\n\n"
         f"**Refinement Instructions:**\n"
         f"1.  **Executive Summary:** Add a concise (2-4 sentence) 'Executive Summary' or 'Key Takeaways' section at the very beginning, summarizing the report's core findings.\n"
-        f"2.  **Headings/Subheadings:** Ensure clear, descriptive headings (e.g., using markdown-style `#`, `##`, `###`) for sections like Introduction, different Body themes, Conclusion, and potentially Recommendations or Methods if applicable based on the content.\n"
+        f"2.  **Headings/Subheadings:** Ensure clear, descriptive headings (e.g., using markdown-style `#`, `##`, `###`) for sections like Introduction, different Body themes, Conclusion, and the References section.\n"
         f"3.  **Lists:** Convert dense paragraph descriptions of items, steps, pros/cons, or methods into bulleted (`*` or `-`) or numbered lists.\n"
         f"4.  **Tables (Optional but Recommended):** If the text compares multiple methods, items, or data points (e.g., different acquisition methods with costs/limits), try to structure this into a simple markdown table for easy comparison. If a table is not feasible, use parallel bullet points under clear subheadings.\n"
         f"5.  **Paragraphs:** Break down long paragraphs into shorter, more focused ones, each addressing a single idea.\n"
         f"6.  **Bolding:** Use bold text (`**text**`) strategically and sparingly for key terms or crucial conclusions within sentences, not entire sentences.\n"
         f"7.  **Clarity & Flow:** Ensure smooth transitions and logical flow between sections.\n"
-        f"8.  **No New Content:** Do NOT add information not present in the original text. Focus *only* on restructuring and formatting.\n\n"
+        f"8.  **Remove Inline Citations:** CRITICAL - Remove all inline parenthetical citations like `(Summary X)` or `(Summary X, Y)` from the body of the report.\n"
+        f"9.  **Add References Section:** Append the following 'References' section exactly as provided at the VERY END of the report, after the conclusion.\n"
+        f"10. **No New Content:** Do NOT add information not present in the original text. Focus *only* on restructuring, formatting, removing inline citations, and adding the provided References section.\n\n"
         f"**Original Report Text to Refine:**\n"
         f"--- START ORIGINAL REPORT ---\n"
         f"{initial_report_content}\n"
         f"--- END ORIGINAL REPORT ---\n\n"
-        f"**CRITICAL OUTPUT FORMAT:** Enclose the *entire* refined report within a single pair of `<refinedReport>` tags. ONLY include the refined report text inside these tags. NO other text, remarks, or explanations outside the tags.\n"
+        f"**References Section to Add at the End:**\n"
+        f"--- START REFERENCES ---\n"
+        f"{references_section_for_prompt}"
+        f"--- END REFERENCES ---\n\n"
+        f"**CRITICAL OUTPUT FORMAT:** Enclose the *entire* refined report (including the added References section) within a single pair of `<refinedReport>` tags. ONLY include the refined report text inside these tags. NO other text, remarks, or explanations outside the tags.\n"
         f"<refinedReport>" # Start the tag
     )
     refinement_prompt += "\n</refinedReport>" # End the tag
@@ -1658,7 +1791,7 @@ def main():
             log_to_file("Source Determination: Discovering sources + combining direct URLs.")
             if not args.search_queries:
                  raise ValueError("Search is enabled, but no keywords were provided.") # Should be caught by argparse, but safety check
-            discovered_sources = discover_sources(args.search_queries, env_config)
+            discovered_sources = discover_sources(args.search_queries, env_config, args) # Pass args here
 
             combined_sources = direct_article_urls + discovered_sources
             seen_sources = set()
@@ -1679,6 +1812,13 @@ def main():
             elif not sources_for_scraping:
                  print("Warning: No sources found for scraping, but proceeding with reference documents (if any).")
                  log_to_file("Warning: No sources found for scraping, using only reference docs.")
+
+        # --- Final Filter for --no-reddit before scraping ---
+        if args.no_reddit and sources_for_scraping:
+            original_count = len(sources_for_scraping)
+            sources_for_scraping = [src for src in sources_for_scraping if not (src.startswith('r/') or 'reddit.com/r/' in src)]
+            if len(sources_for_scraping) < original_count:
+                print(f"\nFinal Check: Removed {original_count - len(sources_for_scraping)} Reddit source(s) from scraping list due to --no-reddit.")
 
         # 3. Scrape Content
         scraped_content = []
@@ -1710,16 +1850,20 @@ def main():
              log_to_file(f"Warning: No summaries met threshold {args.score_threshold}. Using only reference docs for report.")
 
         # 5. Generate Initial Report
-        initial_report_filepath, initial_report_content = generate_report(summaries, reference_docs_content, args.topic, env_config, args)
+        # Capture the returned top_summaries list
+        initial_report_filepath, initial_report_content, top_summaries_for_refinement = generate_report(summaries, reference_docs_content, args.topic, env_config, args)
         if not initial_report_filepath or not initial_report_content:
+             # top_summaries_for_refinement might be None or [] if generation failed early
              raise RuntimeError("Failed to generate the initial research report.")
         print(f"\nSuccessfully generated initial report (content length: {len(initial_report_content)} chars)")
         final_report_path_to_show = initial_report_filepath # Default to initial if refinement skipped/fails
 
         # 6. Refine Report Presentation (Conditional)
         if not args.skip_refinement:
+            # Pass the captured top_summaries_for_refinement to the refinement function
             refined_report_filepath = refine_report_presentation(
                 initial_report_content,
+                top_summaries_for_refinement, # Pass the list here
                 args.topic,
                 env_config,
                 timestamp, # Pass timestamp
