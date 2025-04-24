@@ -503,21 +503,35 @@ install_wkhtmltopdf() {
     
     case "$OS_ID" in
         debian|ubuntu)
+            # First attempt: Try installing via apt
+            print_info "Attempting to install wkhtmltopdf via apt..."
+            if sudo apt-get update && sudo apt-get install -y wkhtmltopdf; then
+                print_info "Successfully installed wkhtmltopdf via apt"
+                return 0
+            fi
+            
+            print_warning "apt installation failed, attempting manual installation..."
+            
             local version=""
             local arch="amd64"
+            local success=false
             
-            # Determine version based on distribution and release
+            # First try matching version-specific package
             case "$VERSION_ID" in
+                "12"|"bookworm") version="0.12.7-1.bookworm";;
                 "11"|"bullseye") version="0.12.7-1.bullseye";;
                 "10"|"buster") version="0.12.7-1.buster";;
-                "9"|"stretch") version="0.12.7-1.stretch";;
+                "24.04"|"noble") version="0.12.7-1.jammy";; # Try jammy package for noble
+                "23.10"|"mantic") version="0.12.7-1.jammy";; # Try jammy package for mantic
+                "23.04"|"lunar") version="0.12.7-1.jammy";; # Try jammy package for lunar
+                "22.10"|"kinetic") version="0.12.7-1.jammy";; # Try jammy package for kinetic
                 "22.04"|"jammy") version="0.12.7-1.jammy";;
                 "20.04"|"focal") version="0.12.7-1.focal";;
                 "18.04"|"bionic") version="0.12.7-1.bionic";;
-                "16.04"|"xenial") version="0.12.7-1.xenial";;
                 *)
-                    print_error "Unsupported Debian/Ubuntu version: $VERSION_ID"
-                    return 1
+                    # For unknown versions, try using the package for the latest LTS
+                    print_warning "Unknown Debian/Ubuntu version: $VERSION_ID, attempting with jammy package..."
+                    version="0.12.7-1.jammy"
                     ;;
             esac
             
@@ -525,100 +539,217 @@ install_wkhtmltopdf() {
             local temp_deb="/tmp/wkhtmltopdf.deb"
             
             print_info "Downloading wkhtmltopdf package from: $download_url"
-            if ! wget -q -O "$temp_deb" "$download_url"; then
-                print_error "Failed to download wkhtmltopdf package"
-                return 1
+            if wget -q -O "$temp_deb" "$download_url"; then
+                print_info "Installing downloaded wkhtmltopdf package..."
+                if sudo dpkg -i "$temp_deb"; then
+                    success=true
+                else
+                    print_warning "dpkg installation failed, attempting to fix dependencies..."
+                    if sudo apt-get install -f -y && sudo dpkg -i "$temp_deb"; then
+                        success=true
+                    fi
+                fi
+                rm -f "$temp_deb"
             fi
             
-            print_info "Installing wkhtmltopdf package..."
-            if ! sudo dpkg -i "$temp_deb"; then
-                sudo apt-get install -f -y # Try to fix broken dependencies
-                if ! sudo dpkg -i "$temp_deb"; then
-                    print_error "Failed to install wkhtmltopdf package"
-                    rm -f "$temp_deb"
-                    return 1
-                fi
+            if [ "$success" = true ]; then
+                print_info "Successfully installed wkhtmltopdf from downloaded package"
+                return 0
+            else
+                print_error "Failed to install wkhtmltopdf automatically."
+                echo
+                echo "Please try installing manually using one of these methods:"
+                echo "1. Using apt (recommended):"
+                echo "   sudo apt-get update"
+                echo "   sudo apt-get install -y wkhtmltopdf"
+                echo
+                echo "2. Download from official website:"
+                echo "   Visit https://wkhtmltopdf.org/downloads.html"
+                echo "   Download and install the appropriate package for your system"
+                echo
+                return 1
             fi
-            rm -f "$temp_deb"
             ;;
             
         fedora|centos|rhel|almalinux)
+            # First attempt: Try installing via package manager
+            local pkg_cmd=""
+            if command -v dnf &> /dev/null; then
+                pkg_cmd="sudo dnf install -y wkhtmltopdf"
+            elif command -v yum &> /dev/null; then
+                pkg_cmd="sudo yum install -y wkhtmltopdf"
+            fi
+
+            if [ -n "$pkg_cmd" ]; then
+                print_info "Attempting to install wkhtmltopdf via package manager..."
+                if $pkg_cmd; then
+                    print_info "Successfully installed wkhtmltopdf via package manager"
+                    return 0
+                fi
+                print_warning "Package manager installation failed, attempting manual installation..."
+            fi
+
             local arch="x86_64"
             local version="0.12.7-1"
+            local success=false
             
+            # Determine specific version based on OS and version
             if [[ "$OS_ID" == "almalinux" ]]; then
                 if [[ "$VERSION_ID" == "9" ]]; then
                     version="0.12.7-1.almalinux9"
                 elif [[ "$VERSION_ID" == "8" ]]; then
                     version="0.12.7-1.almalinux8"
+                else
+                    version="0.12.7-1.almalinux9" # Try latest for unknown versions
                 fi
             elif [[ "$OS_ID" == "centos" ]]; then
                 if [[ "$VERSION_ID" == "7" ]]; then
                     version="0.12.7-1.centos7"
                 elif [[ "$VERSION_ID" == "6" ]]; then
                     version="0.12.7-1.centos6"
+                else
+                    version="0.12.7-1.centos7" # Try latest for unknown versions
                 fi
+            elif [[ "$OS_ID" == "fedora" ]]; then
+                version="0.12.7-1.fedora" # Generic Fedora package
             fi
             
             local download_url="https://github.com/wkhtmltopdf/packaging/releases/download/0.12.7-1/wkhtmltox-${version}.${arch}.rpm"
             local temp_rpm="/tmp/wkhtmltopdf.rpm"
             
             print_info "Downloading wkhtmltopdf package from: $download_url"
-            if ! wget -q -O "$temp_rpm" "$download_url"; then
-                print_error "Failed to download wkhtmltopdf package"
-                return 1
-            fi
-            
-            print_info "Installing wkhtmltopdf package..."
-            if ! sudo rpm -Uvh "$temp_rpm"; then
-                print_error "Failed to install wkhtmltopdf package"
+            if wget -q -O "$temp_rpm" "$download_url"; then
+                print_info "Installing downloaded wkhtmltopdf package..."
+                if sudo rpm -Uvh "$temp_rpm"; then
+                    success=true
+                fi
                 rm -f "$temp_rpm"
+            fi
+
+            if [ "$success" = true ]; then
+                print_info "Successfully installed wkhtmltopdf from downloaded package"
+                return 0
+            else
+                print_error "Failed to install wkhtmltopdf automatically."
+                echo
+                echo "Please try installing manually using one of these methods:"
+                echo "1. Using package manager (recommended):"
+                if command -v dnf &> /dev/null; then
+                    echo "   sudo dnf install wkhtmltopdf"
+                else
+                    echo "   sudo yum install wkhtmltopdf"
+                fi
+                echo
+                echo "2. Download from official website:"
+                echo "   Visit https://wkhtmltopdf.org/downloads.html"
+                echo "   Download and install the appropriate package for your system"
+                echo
                 return 1
             fi
-            rm -f "$temp_rpm"
             ;;
             
-        "opensuse-leap")
-            print_info "Installing wkhtmltopdf from openSUSE repository..."
-            sudo zypper install -y wkhtmltopdf
+        opensuse*|"sles")
+            local success=false
+            print_info "Attempting to install wkhtmltopdf via zypper..."
+            
+            # First attempt: Try installing via zypper
+            if sudo zypper install -y wkhtmltopdf; then
+                success=true
+            else
+                print_warning "zypper installation failed, attempting alternative installation..."
+                
+                # Try manual RPM installation as fallback
+                local arch="x86_64"
+                local version="0.12.7-1.opensuse"
+                local download_url="https://github.com/wkhtmltopdf/packaging/releases/download/0.12.7-1/wkhtmltox-${version}.${arch}.rpm"
+                local temp_rpm="/tmp/wkhtmltopdf.rpm"
+                
+                print_info "Downloading wkhtmltopdf from: $download_url"
+                if wget -q -O "$temp_rpm" "$download_url"; then
+                    print_info "Installing downloaded wkhtmltopdf package..."
+                    if sudo rpm -Uvh "$temp_rpm"; then
+                        success=true
+                    fi
+                fi
+                rm -f "$temp_rpm" 2>/dev/null
+            fi
+            
+            if [ "$success" = true ]; then
+                print_info "Successfully installed wkhtmltopdf"
+                return 0
+            else
+                print_error "Failed to install wkhtmltopdf automatically."
+                echo
+                echo "Please try installing manually using one of these methods:"
+                echo "1. Using zypper (recommended):"
+                echo "   sudo zypper install wkhtmltopdf"
+                echo
+                echo "2. Download from official website:"
+                echo "   Visit https://wkhtmltopdf.org/downloads.html"
+                echo "   Download and install the appropriate package for your system"
+                echo
+                return 1
+            fi
             ;;
             
         "arch"|"manjaro"|"endeavouros"|"garuda")
+            local success=false
             print_info "Checking wkhtmltopdf in Arch repositories..."
-            # Check if wkhtmltopdf exists in standard repos first
+            
+            # First attempt: Try official repos
             if pacman -Si wkhtmltopdf &> /dev/null; then
-                 print_info "Found wkhtmltopdf in standard repositories. Installing..."
-                 sudo pacman -S --noconfirm wkhtmltopdf
+                print_info "Found wkhtmltopdf in standard repositories. Installing..."
+                if sudo pacman -S --noconfirm wkhtmltopdf; then
+                    success=true
+                else
+                    print_warning "pacman installation failed."
+                fi
             else
-                 print_warning "wkhtmltopdf not found in standard Arch repositories."
-                 local AUR_HELPER=""
-                 if command -v yay &> /dev/null; then
-                     AUR_HELPER="yay"
-                 elif command -v paru &> /dev/null; then
-                     AUR_HELPER="paru"
-                 fi
+                print_warning "wkhtmltopdf not found in standard Arch repositories."
+            fi
 
-                 if [ -n "$AUR_HELPER" ]; then
-                     print_warning "Detected AUR helper: $AUR_HELPER."
-                     read -p "Do you want to attempt installing 'wkhtmltopdf-static' from the AUR using $AUR_HELPER? [y/N]: " INSTALL_AUR_WKHTMLTOPDF
-                     INSTALL_AUR_WKHTMLTOPDF=$(echo "$INSTALL_AUR_WKHTMLTOPDF" | tr '[:upper:]' '[:lower:]')
-                     if [[ "$INSTALL_AUR_WKHTMLTOPDF" == "y" ]]; then
-                         print_info "Attempting installation via $AUR_HELPER..."
-                         # Use the detected helper, target wkhtmltopdf-static
-                         if $AUR_HELPER -S --noconfirm wkhtmltopdf-static; then
-                             print_info "AUR installation successful."
-                         else
-                             print_error "AUR installation with $AUR_HELPER failed. Please install wkhtmltopdf manually."
-                             return 1
-                         fi
-                     else
-                         print_error "Skipping AUR installation. Please install wkhtmltopdf manually (e.g., from AUR: yay -S wkhtmltopdf-static)."
-                         return 1
-                     fi
-                 else
-                     print_error "No common AUR helper (yay/paru) found. Please install wkhtmltopdf manually (e.g., from AUR: yay -S wkhtmltopdf-static)."
-                     return 1
-                 fi
+            # If official repos failed, try AUR
+            if [ "$success" = false ]; then
+                local AUR_HELPER=""
+                if command -v yay &> /dev/null; then
+                    AUR_HELPER="yay"
+                elif command -v paru &> /dev/null; then
+                    AUR_HELPER="paru"
+                fi
+
+                if [ -n "$AUR_HELPER" ]; then
+                    print_warning "Detected AUR helper: $AUR_HELPER."
+                    read -p "Do you want to attempt installing 'wkhtmltopdf-static' from the AUR using $AUR_HELPER? [y/N]: " INSTALL_AUR_WKHTMLTOPDF
+                    INSTALL_AUR_WKHTMLTOPDF=$(echo "$INSTALL_AUR_WKHTMLTOPDF" | tr '[:upper:]' '[:lower:]')
+                    if [[ "$INSTALL_AUR_WKHTMLTOPDF" == "y" ]]; then
+                        print_info "Attempting installation via $AUR_HELPER..."
+                        if $AUR_HELPER -S --noconfirm wkhtmltopdf-static; then
+                            success=true
+                        fi
+                    fi
+                fi
+            fi
+            
+            if [ "$success" = true ]; then
+                print_info "Successfully installed wkhtmltopdf"
+                return 0
+            else
+                print_error "Failed to install wkhtmltopdf automatically."
+                echo
+                echo "Please try installing manually using one of these methods:"
+                echo "1. Using pacman (if available in official repos):"
+                echo "   sudo pacman -S wkhtmltopdf"
+                echo
+                echo "2. Using AUR (recommended if not in official repos):"
+                echo "   yay -S wkhtmltopdf-static"
+                echo "   # or"
+                echo "   paru -S wkhtmltopdf-static"
+                echo
+                echo "3. Download from official website:"
+                echo "   Visit https://wkhtmltopdf.org/downloads.html"
+                echo "   Download and install the appropriate package for your system"
+                echo
+                return 1
             fi
             ;;
 
