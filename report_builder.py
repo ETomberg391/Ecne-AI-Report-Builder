@@ -23,6 +23,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager # Added to manage chromedriver install
+from webdriver_manager.chrome import ChromeType # Corrected import path for ChromeType
 
 # --- Constants & Configuration ---
 
@@ -676,7 +677,10 @@ def setup_selenium_driver():
 
         # Use webdriver-manager to handle driver download/update
         print("    - Setting up Selenium WebDriver with webdriver-manager...")
-        service = ChromeService(ChromeDriverManager().install())
+        # webdriver-manager will typically find the browser automatically.
+        # If needed, browser path can be set via options.binary_location
+        # service = ChromeService(ChromeDriverManager(chrome_type='chromium', driver_version='135.0.7049.95', path=chromium_path).install()) # Incorrect: path is not a valid arg for ChromeDriverManager constructor
+        service = ChromeService(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()) # Specify CHROMIUM type, let version be auto-detected
         driver = webdriver.Chrome(service=service, options=options)
         print("    - Selenium WebDriver initialized successfully.")
         return driver
@@ -1197,9 +1201,10 @@ def generate_report(summaries_with_scores, reference_docs_content, topic, config
     valid_summaries = [s for s in summaries_with_scores if s['score'] >= args.score_threshold and not s['summary'].startswith("Error:")]
     combined_summaries_text = f"No valid summaries met the score threshold ({args.score_threshold}) or were generated without errors."
     num_summaries_used = len(valid_summaries)
+    top_summaries = [] # Initialize top_summaries to ensure it's always defined
 
     if valid_summaries:
-        top_summaries = sorted(valid_summaries, key=lambda x: x['score'], reverse=True) # Assign here
+        top_summaries = sorted(valid_summaries, key=lambda x: x['score'], reverse=True) # Assign here if summaries exist
         print(f"Using {num_summaries_used} summaries (score >= {args.score_threshold}) for report generation.")
         log_to_file(f"Report Gen: Using {num_summaries_used} summaries meeting score threshold {args.score_threshold}.")
         combined_summaries_text = "\n\n".join([
@@ -1410,7 +1415,7 @@ def convert_markdown_to_pdf(markdown_content, pdf_path):
         print("PDF generation failed. Please install wkhtmltopdf from: https://wkhtmltopdf.org/downloads.html")
         return False
 
-def refine_report_presentation(initial_report_content, top_summaries, topic, config, timestamp, topic_slug):
+def refine_report_presentation(initial_report_content, top_summaries, reference_docs_content, args, topic, config, timestamp, topic_slug):
     """Uses AI to refine the presentation of the generated report."""
     print("\n--- Starting Report Refinement Phase ---")
     log_to_file("Starting report refinement phase.")
@@ -1422,15 +1427,33 @@ def refine_report_presentation(initial_report_content, top_summaries, topic, con
 
     # --- Build References String for Refinement Prompt ---
     references_section_for_prompt = "## References\n"
+    ref_counter = 1
+
+    # Add references from summaries (if any)
     if top_summaries:
-         for i, s in enumerate(top_summaries):
+         for s in top_summaries:
              source_id = s.get('source_id')
              if source_id:
-                 references_section_for_prompt += f"{i+1}. {source_id}\n" # Use numbered list for final report
+                 references_section_for_prompt += f"{ref_counter}. {source_id}\n"
+                 ref_counter += 1
              else:
-                 log_to_file(f"Refinement Warning: Summary {i+1} missing 'source_id'. Cannot add to references section.")
-    else:
-        references_section_for_prompt += "(No summaries met the score threshold to be included in the report)\n"
+                 log_to_file(f"Refinement Warning: Summary missing 'source_id'. Cannot add to references section.")
+
+    # Add references from non-summarized documents (if any)
+    if reference_docs_content and not args.reference_docs_summarize:
+        for doc in reference_docs_content:
+            doc_path = doc.get('path')
+            if doc_path:
+                # Use basename for cleaner reference
+                references_section_for_prompt += f"{ref_counter}. {os.path.basename(doc_path)}\n"
+                ref_counter += 1
+            else:
+                log_to_file(f"Refinement Warning: Reference document missing 'path'. Cannot add to references section.")
+
+    # Handle case where no references were added at all
+    if ref_counter == 1:
+        references_section_for_prompt += "(No summaries met the score threshold and no non-summarized reference documents were used)\n"
+
     # --- End Build References String ---
 
     # --- Construct Refinement Prompt ---
@@ -1861,13 +1884,16 @@ def main():
         # 6. Refine Report Presentation (Conditional)
         if not args.skip_refinement:
             # Pass the captured top_summaries_for_refinement to the refinement function
+            # Pass the captured top_summaries_for_refinement, reference_docs_content, and args
             refined_report_filepath = refine_report_presentation(
                 initial_report_content,
-                top_summaries_for_refinement, # Pass the list here
+                top_summaries_for_refinement,
+                reference_docs_content, # Pass the list of reference docs
+                args,                   # Pass the args object
                 args.topic,
                 env_config,
-                timestamp, # Pass timestamp
-                topic_slug # Pass topic_slug
+                timestamp,              # Pass timestamp
+                topic_slug              # Pass topic_slug
             )
             if refined_report_filepath:
                 print(f"\nSuccessfully refined report presentation.")
