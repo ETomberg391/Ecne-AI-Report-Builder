@@ -75,40 +75,40 @@ if grep -q Microsoft /proc/version 2>/dev/null; then
     fi
 fi
 
-# Check for Git Bash or native Windows environment
-if [[ -d "/mingw64" ]] || [[ -n "${MINGW_PREFIX:-}" ]] || [[ -n "${MSYSTEM:-}" ]] || \
-   [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]] || \
-   [[ -n "${SYSTEMROOT:-}" ]] || [[ -d "/c/Windows" ]] || [[ -d "/c/WINDOWS" ]]; then
-    print_info "Windows environment detected"
-    OS_TYPE="windows"
-    WIN_VER=$(powershell -Command "[System.Environment]::OSVersion.Version.Major" 2>/dev/null || echo "10")
-    if [ "$WIN_VER" = "10" ]; then
-        OS_ID="windows10"
-        print_info "Detected Windows 10"
-    elif [ "$WIN_VER" = "11" ]; then
-        OS_ID="windows11"
-        print_info "Detected Windows 11"
-    else
-        OS_ID="windows"
-        print_info "Detected Windows (version unknown)"
-    fi
-else
-    OS_TYPE=""
-fi
+# Initialize variables
+OS_TYPE=""
 OS_ID=""
 PKG_MANAGER=""
 INSTALL_CMD=""
 UPDATE_CMD=""
 CHROME_INSTALLED_VIA_PKG_MANAGER="false" # Flag to track if we used package manager
 
-# Check for Windows (more robust detection for Git Bash)
+# Check for Windows (Combined and more robust detection)
+# Covers Git Bash, Cygwin, MSYS, and native Windows environments
 if [[ "$OSTYPE" == "msys" ]] || \
    [[ "$OSTYPE" == "cygwin" ]] || \
    [[ -n "${SYSTEMROOT:-}" ]] || \
    [[ -d "/c/Windows" ]] || \
    [[ -d "/c/WINDOWS" ]] || \
    [[ -n "$(command -v wmic 2>/dev/null)" ]] || \
-   [[ "$(uname -s 2>/dev/null)" =~ ^MINGW|^MSYS ]]; then
+   [[ "$(uname -s 2>/dev/null)" =~ ^MINGW|^MSYS ]] || \
+   [[ -n "${MINGW_PREFIX:-}" ]] || \
+   [[ -n "${MSYSTEM:-}" ]] || \
+   [[ -d "/mingw64" ]]; then
+    print_info "Windows environment detected"
+    OS_TYPE="windows"
+    # Detect Windows version using PowerShell (handle potential errors)
+    WIN_VER=$(powershell.exe -NoProfile -Command "[System.Environment]::OSVersion.Version.Major" 2>/dev/null || echo "unknown")
+    if [ "$WIN_VER" -eq "10" ] 2>/dev/null; then # Use numeric comparison, suppress errors
+        OS_ID="windows10"
+        print_info "Detected Windows 10"
+    elif [ "$WIN_VER" -eq "11" ] 2>/dev/null; then # Use numeric comparison, suppress errors
+        OS_ID="windows11"
+        print_info "Detected Windows 11"
+    else
+        OS_ID="windows"
+        print_info "Detected Windows (version unknown or PowerShell failed)"
+    fi
     OS_TYPE="windows"
     # Detect Windows version using PowerShell
     WIN_VER=$(powershell -Command "[System.Environment]::OSVersion.Version.Major")
@@ -195,198 +195,20 @@ else
     print_warning "Could not determine Linux distribution. Cannot attempt automatic Chrome/ChromeDriver installation."
 fi
 
-# Function to download and install ChromeDriver manually
-setup_chromedriver() {
-    print_info "Attempting manual ChromeDriver setup..."
-    local browser_version=""
-    
-    if [ "$OS_TYPE" = "windows" ]; then
-        # Try to get Chrome version from Windows registry
-        if command -v powershell &> /dev/null; then
-            browser_version=$(powershell -Command "Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty '(Default)' | Split-Path -Leaf | & { \$ver = (Get-Item (Read-Host | Out-String).Trim()).VersionInfo.FileVersion; Write-Output \$ver.Split('.')[0] }" 2>/dev/null)
-            if [ -z "$browser_version" ]; then
-                # Try alternate registry path
-                browser_version=$(powershell -Command "Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty '(Default)' | Split-Path -Leaf | & { \$ver = (Get-Item (Read-Host | Out-String).Trim()).VersionInfo.FileVersion; Write-Output \$ver.Split('.')[0] }" 2>/dev/null)
-            fi
-        fi
+# --- Removed setup_chromedriver function ---
+# ChromeDriver installation is now handled automatically by the webdriver-manager Python package within the virtual environment when report_builder.py runs.
 
-        if [ -z "$browser_version" ]; then
-            # Try Program Files paths directly
-            local chrome_paths=(
-                "/c/Program Files/Google/Chrome/Application/chrome.exe"
-                "/c/Program Files (x86)/Google/Chrome/Application/chrome.exe"
-            )
-            for chrome_path in "${chrome_paths[@]}"; do
-                if [ -f "$chrome_path" ]; then
-                    browser_version=$(powershell -Command "Write-Output (Get-Item '$chrome_path').VersionInfo.FileVersion.Split('.')[0]" 2>/dev/null)
-                    if [ -n "$browser_version" ]; then
-                        break
-                    fi
-                fi
-            done
-        fi
-    else
-        # Linux browser version detection
-        local browser_cmd=""
-        if command -v google-chrome &> /dev/null; then
-            browser_cmd="google-chrome"
-        elif command -v chromium &> /dev/null; then
-            browser_cmd="chromium"
-        elif command -v chromium-browser &> /dev/null; then
-            browser_cmd="chromium-browser"
-        fi
-
-        if [ -n "$browser_cmd" ]; then
-            browser_version=$($browser_cmd --version | grep -oP '(\d+)\.\d+\.\d+\.\d+' | head -n 1 | cut -d '.' -f 1 || echo "0")
-            print_info "Detected Browser ($browser_cmd) Major Version: $browser_version"
-        fi
-    fi
-
-    if [ -z "$browser_version" ] || [ "$browser_version" = "0" ]; then
-        print_error "Could not detect Chrome/Chromium version for ChromeDriver download."
-    fi
-
-    if [ "$browser_version" == "0" ] || [ -z "$browser_version" ]; then
-        print_error "Could not automatically detect Chrome/Chromium version for manual ChromeDriver download. Please install ChromeDriver manually."
-    fi
-
-    print_info "Using browser major version: $browser_version for ChromeDriver download."
-
-    # Create a temporary directory
-    local temp_dir
-    temp_dir=$(mktemp -d -t chromedriver-XXXXXX)
-    if [ ! -d "$temp_dir" ]; then
-        print_error "Failed to create temporary directory for ChromeDriver download."
-    fi
-    print_info "Using temporary directory: $temp_dir"
-    cd "$temp_dir"
-
-    # Get the LATEST_RELEASE version for the detected major browser version
-    local latest_release_url="https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${browser_version}"
-    local latest_chromedriver_version=""
-    print_info "Fetching latest ChromeDriver version string from: $latest_release_url"
-    set +e # Don't exit if curl fails here
-    latest_chromedriver_version=$(curl -s "$latest_release_url")
-    local curl_exit_code=$?
-    set -e
-    if [ $curl_exit_code -ne 0 ] || [ -z "$latest_chromedriver_version" ]; then
-        print_error "Failed to fetch ChromeDriver version for Chrome/Chromium version $browser_version. Please check network or install manually."
-        rm -rf "$temp_dir" # Clean up temp dir
-        return 1
-    fi
-    print_info "Latest available ChromeDriver version for Chrome $browser_version: $latest_chromedriver_version"
-
-    # Set platform-specific variables
-    local platform_suffix="linux64"
-    local chromedriver_zip="chromedriver-linux64.zip"
-    local chromedriver_name="chromedriver"
-    local install_dir="/usr/local/bin"
-    
-    if [ "$OS_TYPE" = "windows" ]; then
-        platform_suffix="win64"
-        chromedriver_zip="chromedriver-win64.zip"
-        chromedriver_name="chromedriver.exe"
-        install_dir="/c/Windows"
-    fi
-
-    # Construct download URL
-    local download_url="https://storage.googleapis.com/chrome-for-testing-public/${latest_chromedriver_version}/${platform_suffix}/${chromedriver_zip}"
-    print_info "Downloading ChromeDriver from: $download_url"
-
-    if [ "$OS_TYPE" = "windows" ]; then
-        # Use PowerShell for Windows download and extraction
-        set +e
-        powershell -Command "
-            \$ErrorActionPreference = 'Stop'
-            Write-Host 'Downloading ChromeDriver...'
-            Invoke-WebRequest -Uri '$download_url' -OutFile '$chromedriver_zip'
-            
-            Write-Host 'Extracting ChromeDriver...'
-            Expand-Archive -Path '$chromedriver_zip' -DestinationPath . -Force
-            Remove-Item '$chromedriver_zip'
-            
-            # Find chromedriver.exe recursively
-            \$driverPath = Get-ChildItem -Recurse -Filter '$chromedriver_name' | Select-Object -First 1 -ExpandProperty FullName
-            if (\$driverPath) {
-                Write-Host 'Moving ChromeDriver to Windows directory...'
-                Copy-Item -Force \$driverPath '$install_dir/$chromedriver_name'
-                # Add to PATH if not already present
-                \$path = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-                if (\$path -notlike '*$install_dir*') {
-                    [Environment]::SetEnvironmentVariable('Path', \$path + ';$install_dir', 'Machine')
-                }
-            } else {
-                Write-Error 'ChromeDriver executable not found in extracted contents'
-                exit 1
-            }"
-        local ps_exit_code=$?
-        set -e
-        
-        if [ $ps_exit_code -ne 0 ]; then
-            print_error "Failed to download or install ChromeDriver using PowerShell."
-            rm -rf "$temp_dir"
-            return 1
-        fi
-    else
-        # Linux download and installation
-        set +e
-        wget -q "$download_url" -O "$chromedriver_zip"
-        if [ $? -ne 0 ]; then
-            print_error "Failed to download ChromeDriver zip file. Please check the URL or install manually."
-            rm -rf "$temp_dir"
-            return 1
-        fi
-
-        unzip -o "$chromedriver_zip"
-        if [ $? -ne 0 ]; then
-            print_error "Failed to unzip ChromeDriver archive."
-            rm -rf "$temp_dir"
-            return 1
-        fi
-        set -e
-
-        # Find and move the executable
-        local chromedriver_path=$(find . -name "$chromedriver_name" -type f -print -quit)
-        if [ -z "$chromedriver_path" ] || [ ! -f "$chromedriver_path" ]; then
-            print_error "Could not find '$chromedriver_name' executable within the downloaded zip archive."
-            rm -rf "$temp_dir"
-            return 1
-        fi
-        print_info "Found chromedriver executable at: $chromedriver_path"
-
-        # Install with proper permissions
-        print_info "Moving chromedriver to $install_dir (requires sudo)..."
-        sudo mv "$chromedriver_path" "$install_dir/$chromedriver_name"
-        sudo chown root:root "$install_dir/$chromedriver_name"
-        sudo chmod +x "$install_dir/$chromedriver_name"
-    fi
-
-    # Cleanup
-    cd "$ORIGINAL_DIR"
-    rm -rf "$temp_dir"
-
-    print_info "Manual ChromeDriver setup attempt complete."
-    # Verify installation
-    if command -v chromedriver &> /dev/null; then
-        print_info "ChromeDriver command is now available."
-        local installed_version=$(chromedriver --version | grep -oP 'ChromeDriver\s+\K\d+\.\d+\.\d+\.\d+' || echo "N/A")
-        print_info "Installed ChromeDriver Version: $installed_version"
-        return 0 # Success
-    else
-        print_error "Manual ChromeDriver installation failed. Command 'chromedriver' still not found."
-        return 1 # Failure
-    fi
-}
+# --- End Removed setup_chromedriver function ---
 
 
 if [ -n "$PKG_MANAGER" ] && [ -n "$INSTALL_CMD" ]; then
     echo
-    read -p "Do you want to attempt to install/update Google Chrome/Chromium and ChromeDriver? (Required for Selenium features) [y/N]: " INSTALL_CHROME
+    read -p "Do you want to attempt to install/update Google Chrome/Chromium using $PKG_MANAGER? (Browser is required for Selenium features) [y/N]: " INSTALL_CHROME
     INSTALL_CHROME=$(echo "$INSTALL_CHROME" | tr '[:upper:]' '[:lower:]')
 
     if [[ "$INSTALL_CHROME" == "y" ]]; then
         GOOGLE_CHROME_INSTALLED_FLAG="false" # Track if google-chrome was installed specifically
-        print_info "Attempting to install/update Chrome/Chromium and ChromeDriver using $PKG_MANAGER..."
+        print_info "Attempting to install/update Chrome/Chromium using $PKG_MANAGER..."
         if [ -n "$UPDATE_CMD" ]; then
             print_info "Running package list update ($UPDATE_CMD)..."
             set +e
@@ -403,7 +225,7 @@ if [ -n "$PKG_MANAGER" ] && [ -n "$INSTALL_CMD" ]; then
             winget)
                 # Install Google Chrome using winget
                 print_info "Attempting to install Google Chrome using winget..."
-                $INSTALL_CMD Google.Chrome
+                $INSTALL_CMD Google.Chrome # Winget package name
                 INSTALL_EXIT_CODE=$?
                 if [ $INSTALL_EXIT_CODE -eq 0 ]; then
                     CHROME_INSTALLED_VIA_PKG_MANAGER="true"
@@ -412,7 +234,7 @@ if [ -n "$PKG_MANAGER" ] && [ -n "$INSTALL_CMD" ]; then
             choco)
                 # Install Google Chrome using chocolatey
                 print_info "Attempting to install Google Chrome using chocolatey..."
-                $INSTALL_CMD googlechrome
+                $INSTALL_CMD googlechrome # Choco package name
                 INSTALL_EXIT_CODE=$?
                 if [ $INSTALL_EXIT_CODE -eq 0 ]; then
                     CHROME_INSTALLED_VIA_PKG_MANAGER="true"
@@ -429,19 +251,23 @@ if [ -n "$PKG_MANAGER" ] && [ -n "$INSTALL_CMD" ]; then
                 GOOGLE_CHROME_INSTALLED_FLAG="true" # Mark that we tried to install google-chrome
                 ;;
             dnf|yum)
-                # Install Chromium and driver
-                sudo $INSTALL_CMD chromium chromium-driver
+                # Install Chromium (driver handled by webdriver-manager)
+                print_info "Attempting to install Chromium using $PKG_MANAGER..."
+                sudo $INSTALL_CMD chromium # Package name on dnf/yum
                 INSTALL_EXIT_CODE=$?
                 CHROME_INSTALLED_VIA_PKG_MANAGER="true"
                 ;;
             pacman)
-                # Use --needed to only install if missing or outdated
-                sudo $INSTALL_CMD --needed chromium chromedriver
+                # Use --needed to only install if missing or outdated (driver handled by webdriver-manager)
+                print_info "Attempting to install Chromium using $PKG_MANAGER..."
+                sudo $INSTALL_CMD --needed chromium # Package name on pacman
                 INSTALL_EXIT_CODE=$?
                 CHROME_INSTALLED_VIA_PKG_MANAGER="true"
                 ;;
             zypper)
-                sudo $INSTALL_CMD chromium chromium-driver
+                 # Driver handled by webdriver-manager
+                print_info "Attempting to install Chromium using $PKG_MANAGER..."
+                sudo $INSTALL_CMD chromium # Package name on zypper
                 INSTALL_EXIT_CODE=$?
                 CHROME_INSTALLED_VIA_PKG_MANAGER="true"
                 ;;
@@ -455,30 +281,7 @@ if [ -n "$PKG_MANAGER" ] && [ -n "$INSTALL_CMD" ]; then
             # Don't error out here, let the chromedriver check proceed
         fi
 
-        # Check if chromedriver command exists now
-        CHROMEDRIVER_FOUND="false"
-        if command -v chromedriver &> /dev/null; then
-            print_info "ChromeDriver command found after installation attempt."
-            CHROMEDRIVER_FOUND="true"
-        else
-             print_warning "ChromeDriver command not found after package manager installation attempt."
-        fi
-
-        # Attempt manual download if the package manager install failed OR if specifically using apt which doesn't bundle chromedriver
-        if [ $INSTALL_EXIT_CODE -ne 0 ] || [[ "$PKG_MANAGER" == "apt" ]]; then
-            if [ $INSTALL_EXIT_CODE -ne 0 ]; then
-                print_warning "Package manager installation failed (Exit Code: $INSTALL_EXIT_CODE). Attempting manual ChromeDriver download/setup..."
-            else
-                # This case is mainly for apt where google-chrome doesn't include chromedriver
-                print_warning "Attempting manual ChromeDriver download/setup as required step for this package manager..."
-            fi
-            setup_chromedriver # Attempt manual setup
-            # setup_chromedriver prints its own success/failure
-        elif [[ "$CHROMEDRIVER_FOUND" == "false" ]]; then
-             # If pkg manager succeeded but command still not found (less likely but possible)
-             print_warning "ChromeDriver command still not found after successful package manager run. Attempting manual setup..."
-             setup_chromedriver
-        fi
+        # ChromeDriver is handled by webdriver-manager in Python, no need to check/install manually here.
 
     else
         print_info "Skipping automatic Chrome/ChromeDriver installation."
@@ -1018,7 +821,7 @@ echo "3. Ensure necessary API keys are correctly set in:"
 echo "   - ${ROOT_ENV_PATH}"
 echo "   - ${ORIGINAL_DIR}/settings/llm_settings/ai_models.yml (if modified)"
 echo
-echo "4. Verify Chrome/Chromium and a compatible ChromeDriver are installed if you rely on Selenium features."
+echo "4. Verify Chrome/Chromium is installed if you rely on Selenium features. ChromeDriver will be managed automatically by the Python script."
 echo
 echo "5. PDF report generation requires wkhtmltopdf. If you did not install it during setup,"
 echo "   install it manually from https://wkhtmltopdf.org/downloads.html"
