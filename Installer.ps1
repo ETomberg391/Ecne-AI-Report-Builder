@@ -306,6 +306,29 @@ if ($configureBrave -eq 'y') {
     }
 }
 
+# Check if ai_models.yml exists, copy from example if not
+$aiModelsPath = ".\settings\llm_settings\ai_models.yml"
+$exampleAiModelsPath = ".\settings\llm_settings\ai_models.example.yml"
+
+if (-not (Test-Path $aiModelsPath)) {
+    Write-Info "$aiModelsPath not found. Checking for example file..."
+    if (Test-Path $exampleAiModelsPath) {
+        Write-Info "Copying $exampleAiModelsPath to $aiModelsPath..."
+        try {
+            Copy-Item $exampleAiModelsPath $aiModelsPath -Force
+            Write-Info "Successfully created $aiModelsPath from example."
+        } catch {
+            Write-Error "Failed to copy $exampleAiModelsPath to $aiModelsPath: $_"
+            Write-Warning "LLM configuration might not be set correctly. Please check $aiModelsPath manually."
+        }
+    } else {
+        Write-Warning "$exampleAiModelsPath not found. Cannot create $aiModelsPath automatically."
+        Write-Warning "LLM configuration might not be set correctly. Please ensure $aiModelsPath exists and is configured."
+    }
+} else {
+    Write-Info "$aiModelsPath already exists."
+}
+
 # Configure LLM
 $useGemini = Read-Host "Do you want to use the recommended free Google Gemini Flash model? (Recommended) [Y/n]"
 if ($useGemini -ne 'n') {
