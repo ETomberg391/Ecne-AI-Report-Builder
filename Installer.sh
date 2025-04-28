@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # Exit immediately if a command exits with a non-zero status.
 set -e
 # Treat unset variables as an error when substituting.
@@ -122,7 +121,7 @@ if [[ "$OSTYPE" == "msys" ]] || \
         OS_ID="windows"
         print_info "Detected Windows (version unknown)"
     fi
-    
+
     # Check for package managers
     if command -v winget &> /dev/null; then
         PKG_MANAGER="winget"
@@ -303,7 +302,7 @@ install_wkhtmltopdf() {
     fi
 
     print_info "Installing wkhtmltopdf..."
-    
+
     case "$OS_ID" in
         debian|ubuntu)
             # First attempt: Try installing via apt
@@ -312,13 +311,13 @@ install_wkhtmltopdf() {
                 print_info "Successfully installed wkhtmltopdf via apt"
                 return 0
             fi
-            
+
             print_warning "apt installation failed, attempting manual installation..."
-            
+
             local version=""
             local arch="amd64"
             local success=false
-            
+
             # First try matching version-specific package
             case "$VERSION_ID" in
                 "12"|"bookworm") version="0.12.7-1.bookworm";;
@@ -337,10 +336,10 @@ install_wkhtmltopdf() {
                     version="0.12.7-1.jammy"
                     ;;
             esac
-            
+
             local download_url="https://github.com/wkhtmltopdf/packaging/releases/download/0.12.7-1/wkhtmltox_${version}_${arch}.deb"
             local temp_deb="/tmp/wkhtmltopdf.deb"
-            
+
             print_info "Downloading wkhtmltopdf package from: $download_url"
             if wget -q -O "$temp_deb" "$download_url"; then
                 print_info "Installing downloaded wkhtmltopdf package..."
@@ -354,7 +353,7 @@ install_wkhtmltopdf() {
                 fi
                 rm -f "$temp_deb"
             fi
-            
+
             if [ "$success" = true ]; then
                 print_info "Successfully installed wkhtmltopdf from downloaded package"
                 return 0
@@ -373,7 +372,7 @@ install_wkhtmltopdf() {
                 return 1
             fi
             ;;
-            
+
         fedora|centos|rhel|almalinux)
             # First attempt: Try installing via package manager
             local pkg_cmd=""
@@ -395,7 +394,7 @@ install_wkhtmltopdf() {
             local arch="x86_64"
             local version="0.12.7-1"
             local success=false
-            
+
             # Determine specific version based on OS and version
             if [[ "$OS_ID" == "almalinux" ]]; then
                 if [[ "$VERSION_ID" == "9" ]]; then
@@ -416,10 +415,10 @@ install_wkhtmltopdf() {
             elif [[ "$OS_ID" == "fedora" ]]; then
                 version="0.12.7-1.fedora" # Generic Fedora package
             fi
-            
+
             local download_url="https://github.com/wkhtmltopdf/packaging/releases/download/0.12.7-1/wkhtmltox-${version}.${arch}.rpm"
             local temp_rpm="/tmp/wkhtmltopdf.rpm"
-            
+
             print_info "Downloading wkhtmltopdf package from: $download_url"
             if wget -q -O "$temp_rpm" "$download_url"; then
                 print_info "Installing downloaded wkhtmltopdf package..."
@@ -450,23 +449,23 @@ install_wkhtmltopdf() {
                 return 1
             fi
             ;;
-            
+
         opensuse*|"sles")
             local success=false
             print_info "Attempting to install wkhtmltopdf via zypper..."
-            
+
             # First attempt: Try installing via zypper
             if sudo zypper install -y wkhtmltopdf; then
                 success=true
             else
                 print_warning "zypper installation failed, attempting alternative installation..."
-                
+
                 # Try manual RPM installation as fallback
                 local arch="x86_64"
                 local version="0.12.7-1.opensuse"
                 local download_url="https://github.com/wkhtmltopdf/packaging/releases/download/0.12.7-1/wkhtmltox-${version}.${arch}.rpm"
                 local temp_rpm="/tmp/wkhtmltopdf.rpm"
-                
+
                 print_info "Downloading wkhtmltopdf from: $download_url"
                 if wget -q -O "$temp_rpm" "$download_url"; then
                     print_info "Installing downloaded wkhtmltopdf package..."
@@ -476,7 +475,7 @@ install_wkhtmltopdf() {
                 fi
                 rm -f "$temp_rpm" 2>/dev/null
             fi
-            
+
             if [ "$success" = true ]; then
                 print_info "Successfully installed wkhtmltopdf"
                 return 0
@@ -494,11 +493,11 @@ install_wkhtmltopdf() {
                 return 1
             fi
             ;;
-            
+
         "arch"|"manjaro"|"endeavouros"|"garuda")
             local success=false
             print_info "Checking wkhtmltopdf in Arch repositories..."
-            
+
             # First attempt: Try official repos
             if pacman -Si wkhtmltopdf &> /dev/null; then
                 print_info "Found wkhtmltopdf in standard repositories. Installing..."
@@ -532,7 +531,7 @@ install_wkhtmltopdf() {
                     fi
                 fi
             fi
-            
+
             if [ "$success" = true ]; then
                 print_info "Successfully installed wkhtmltopdf"
                 return 0
@@ -562,7 +561,7 @@ install_wkhtmltopdf() {
             return 1
             ;;
     esac
-    
+
     # Verify installation
     if command -v wkhtmltopdf &> /dev/null; then
         print_info "wkhtmltopdf installed successfully."
@@ -690,25 +689,40 @@ if [[ "$USE_GEMINI" != "n" ]]; then
     echo "You can get a Google Gemini API key from https://ai.google.dev/gemini-api/docs/api-key"
     read -p "Enter Gemini API Key: " GEMINI_API_KEY
 
-    # Update ai_models.yml and .env (check if files exist)
-    AI_MODELS_PATH="${ORIGINAL_DIR}/settings/llm_settings/ai_models.yml"
+    # Define paths and check/copy ai_models.yml
+    AI_MODELS_DIR="${ORIGINAL_DIR}/settings/llm_settings"
+    AI_MODELS_PATH="${AI_MODELS_DIR}/ai_models.yml"
+    AI_MODELS_EXAMPLE_PATH="${AI_MODELS_DIR}/ai_models.example.yml"
+
+    if [ ! -f "$AI_MODELS_PATH" ]; then
+        if [ -f "$AI_MODELS_EXAMPLE_PATH" ]; then
+            print_info "Creating $AI_MODELS_PATH from example..."
+            cp "$AI_MODELS_EXAMPLE_PATH" "$AI_MODELS_PATH"
+        else
+            print_warning "$AI_MODELS_EXAMPLE_PATH not found. Cannot create $AI_MODELS_PATH."
+            # Continue without the file, but updates will fail
+        fi
+    fi
+
+    # Update ai_models.yml (only if it exists now)
     if [ -f "$AI_MODELS_PATH" ]; then
+        print_info "Updating Gemini settings in $AI_MODELS_PATH..."
         # Use # as sed delimiter
         # Use awk for more robust YAML modification
-        temp_yaml="${AI_MODELS_PATH}.tmp" # Removed 'local' keyword
+        temp_yaml="${AI_MODELS_PATH}.tmp"
         awk -v key="$GEMINI_API_KEY" '
         BEGIN { in_gemini_block = 0; found_key = 0 }
         /^gemini_flash:/ { in_gemini_block = 1 }
         /^[[:alnum:]_-]+:/ && !/^gemini_flash:/ { in_gemini_block = 0 }
-        
+
         in_gemini_block && /^[[:space:]]*api_key:/ {
             printf "  api_key: \"%s\"\n", key
             found_key = 1
             next
         }
-        
+
         { print }
-        
+
         END {
             if (found_key == 0) {
                 print "Error: Could not find api_key line in gemini_flash section"
@@ -757,9 +771,24 @@ else
     read -p "Temperature (e.g., 0.7, leave blank for default): " OPENAI_TEMPERATURE
     # OPENAI_TEMPERATURE=${OPENAI_TEMPERATURE:-0.7} # Defaulting in python script is safer
 
-    # Update ai_models.yml and .env (check if files exist)
-    AI_MODELS_PATH="${ORIGINAL_DIR}/settings/llm_settings/ai_models.yml"
+    # Define paths and check/copy ai_models.yml
+    AI_MODELS_DIR="${ORIGINAL_DIR}/settings/llm_settings"
+    AI_MODELS_PATH="${AI_MODELS_DIR}/ai_models.yml"
+    AI_MODELS_EXAMPLE_PATH="${AI_MODELS_DIR}/ai_models.example.yml"
+
+    if [ ! -f "$AI_MODELS_PATH" ]; then
+        if [ -f "$AI_MODELS_EXAMPLE_PATH" ]; then
+            print_info "Creating $AI_MODELS_PATH from example..."
+            cp "$AI_MODELS_EXAMPLE_PATH" "$AI_MODELS_PATH"
+        else
+            print_warning "$AI_MODELS_EXAMPLE_PATH not found. Cannot create $AI_MODELS_PATH."
+             # Continue without the file, but updates will fail
+       fi
+    fi
+
+    # Update ai_models.yml (only if it exists now)
     if [ -f "$AI_MODELS_PATH" ]; then
+        print_info "Updating OpenAI compatible settings in $AI_MODELS_PATH..."
         # Use # as sed delimiter
         # Update the 'default_model' section
         # Be careful with empty inputs - use conditional sed or handle defaults in python
