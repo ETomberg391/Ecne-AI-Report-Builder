@@ -675,24 +675,49 @@ def setup_selenium_driver():
         options.add_argument(f'user-agent={random.choice(USER_AGENTS)}')
         options.add_experimental_option('excludeSwitches', ['enable-logging']) # Suppress USB device errors
 
-        # Initialize WebDriver assuming ChromeDriver is in PATH (handled by installer script)
-        print("    - Setting up Selenium WebDriver (assuming ChromeDriver is in PATH)...")
-        # If needed, browser path can be set via options.binary_location
-        # If ChromeDriver is not in PATH, you might need to specify its location:
-        # service = ChromeService(executable_path='/path/to/your/chromedriver') # Old way
-        # Use webdriver-manager to automatically handle the driver path
-        try:
-             driver_path = ChromeDriverManager().install()
-             print(f"    - ChromeDriver path determined by webdriver-manager: {driver_path}")
-             service = ChromeService(executable_path=driver_path)
-        except Exception as wd_manager_error:
-             print(f"    - Error using ChromeDriverManager: {wd_manager_error}")
-             print("    - Falling back to assuming ChromeDriver is in PATH...")
-             log_to_file(f"Selenium Init Warning: ChromeDriverManager failed ({wd_manager_error}), falling back to PATH.")
-             # Fallback to original method if webdriver-manager fails
-             service = ChromeService()
+        print("    - Setting up Selenium WebDriver...")
 
-        driver = webdriver.Chrome(service=service, options=options)
+        # --- Determine ChromeDriver Path ---
+        # Prioritize using the driver potentially installed by Installer.sh into the venv
+        driver_path = None
+        venv_driver_path = None
+        if platform.system() == "Windows":
+            venv_driver_path = os.path.abspath(os.path.join(SCRIPT_DIR, 'host_venv', 'Scripts', 'chromedriver.exe'))
+        else: # Linux or Mac
+            venv_driver_path = os.path.abspath(os.path.join(SCRIPT_DIR, 'host_venv', 'bin', 'chromedriver'))
+
+        if os.path.isfile(venv_driver_path) and os.access(venv_driver_path, os.X_OK):
+            print(f"    - Found script-installed ChromeDriver at: {venv_driver_path}")
+            log_to_file(f"Selenium Init: Using script-installed ChromeDriver: {venv_driver_path}")
+            driver_path = venv_driver_path
+        else:
+            print(f"    - Script-installed ChromeDriver not found at: {venv_driver_path}")
+            print(f"    - Falling back to webdriver-manager to find/download ChromeDriver...")
+            log_to_file(f"Selenium Init Warning: Script-installed ChromeDriver not found at {venv_driver_path}. Using webdriver-manager.")
+            try:
+                driver_path = ChromeDriverManager().install()
+                print(f"    - ChromeDriver path determined by webdriver-manager: {driver_path}")
+                log_to_file(f"Selenium Init: webdriver-manager provided ChromeDriver: {driver_path}")
+            except Exception as wd_manager_error:
+                print(f"    - ERROR: webdriver-manager also failed: {wd_manager_error}")
+                print(f"    - Cannot initialize Selenium. Please ensure ChromeDriver is installed and accessible.")
+                log_to_file(f"Selenium Init Error: webdriver-manager failed: {wd_manager_error}. Cannot find ChromeDriver.")
+                return None # Cannot proceed without a driver path
+
+        # --- Initialize Service and Driver ---
+        if driver_path:
+            try:
+                service = ChromeService(executable_path=driver_path)
+                driver = webdriver.Chrome(service=service, options=options)
+            except Exception as driver_init_error:
+                 print(f"    - Error initializing Chrome with driver at {driver_path}: {driver_init_error}")
+                 log_to_file(f"Selenium Init Error: Failed to start Chrome with driver {driver_path}: {driver_init_error}")
+                 return None
+        else:
+             # This case should be unreachable due to checks above, but safeguard
+             print("    - ERROR: Could not determine a valid ChromeDriver path.")
+             log_to_file("Selenium Init Error: No valid driver_path determined.")
+             return None
         print("    - Selenium WebDriver initialized successfully.")
         return driver
     except Exception as e:
