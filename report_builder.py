@@ -22,8 +22,7 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from webdriver_manager.chrome import ChromeDriverManager # Added to manage chromedriver install
-from webdriver_manager.chrome import ChromeType # Corrected import path for ChromeType
+# Removed webdriver-manager imports as installer script handles driver setup
 
 # --- Constants & Configuration ---
 
@@ -675,12 +674,12 @@ def setup_selenium_driver():
         options.add_argument(f'user-agent={random.choice(USER_AGENTS)}')
         options.add_experimental_option('excludeSwitches', ['enable-logging']) # Suppress USB device errors
 
-        # Use webdriver-manager to handle driver download/update
-        print("    - Setting up Selenium WebDriver with webdriver-manager...")
-        # webdriver-manager will typically find the browser automatically.
+        # Initialize WebDriver assuming ChromeDriver is in PATH (handled by installer script)
+        print("    - Setting up Selenium WebDriver (assuming ChromeDriver is in PATH)...")
         # If needed, browser path can be set via options.binary_location
-        # service = ChromeService(ChromeDriverManager(chrome_type='chromium', driver_version='135.0.7049.95', path=chromium_path).install()) # Incorrect: path is not a valid arg for ChromeDriverManager constructor
-        service = ChromeService(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()) # Specify CHROMIUM type, let version be auto-detected
+        # If ChromeDriver is not in PATH, you might need to specify its location:
+        # service = ChromeService(executable_path='/path/to/your/chromedriver')
+        service = ChromeService() # Assumes chromedriver is in PATH
         driver = webdriver.Chrome(service=service, options=options)
         print("    - Selenium WebDriver initialized successfully.")
         return driver
@@ -1873,18 +1872,39 @@ def main():
              log_to_file(f"Warning: No summaries met threshold {args.score_threshold}. Using only reference docs for report.")
 
         # 5. Generate Initial Report
-        # Capture the returned top_summaries list
-        initial_report_filepath, initial_report_content, top_summaries_for_refinement = generate_report(summaries, reference_docs_content, args.topic, env_config, args)
-        if not initial_report_filepath or not initial_report_content:
-             # top_summaries_for_refinement might be None or [] if generation failed early
-             raise RuntimeError("Failed to generate the initial research report.")
-        print(f"\nSuccessfully generated initial report (content length: {len(initial_report_content)} chars)")
-        final_report_path_to_show = initial_report_filepath # Default to initial if refinement skipped/fails
+        # Call generate_report and check the return value before unpacking
+        report_generation_result = generate_report(summaries, reference_docs_content, args.topic, env_config, args)
+
+        # Check if report generation was successful (returned 3 values)
+        if report_generation_result and len(report_generation_result) == 3:
+            initial_report_filepath, initial_report_content, top_summaries_for_refinement = report_generation_result
+            if not initial_report_filepath or not initial_report_content:
+                 # This condition might be redundant now but kept for safety
+                 raise RuntimeError("generate_report returned success status but file path or content is missing.")
+            print(f"\nSuccessfully generated initial report (content length: {len(initial_report_content)} chars)")
+            final_report_path_to_show = initial_report_filepath # Default to initial if refinement skipped/fails
+        else:
+            # Handle the case where generate_report failed (returned None, None or None, None, None)
+            raise RuntimeError("Failed to generate the initial research report. Check logs for details from generate_report function.")
+            # Note: top_summaries_for_refinement will not be defined in this case,
+            # so refinement step below will be skipped or needs adjustment if it relies on it.
 
         # 6. Refine Report Presentation (Conditional)
-        if not args.skip_refinement:
-            # Pass the captured top_summaries_for_refinement to the refinement function
-            # Pass the captured top_summaries_for_refinement, reference_docs_content, and args
+        if args.skip_refinement:
+            print("\nSkipping report refinement step as requested by --skip-refinement.")
+            log_to_file("Skipping report refinement step (--skip-refinement=True).")
+        elif 'initial_report_content' not in locals() or not initial_report_content:
+            # This case should only be hit if generate_report succeeded but returned empty content,
+            # which is unlikely given the checks, but handled defensively.
+            print("\nSkipping report refinement because initial report content is missing or empty.")
+            log_to_file("Refinement Skipped: Initial report content missing or empty.")
+        elif 'top_summaries_for_refinement' not in locals():
+             # This case implies generate_report succeeded but somehow didn't return the summaries list.
+             print("\nWarning: Cannot refine report because 'top_summaries_for_refinement' is missing. Skipping refinement.")
+             log_to_file("Refinement Skipped: 'top_summaries_for_refinement' not available.")
+        else:
+            # Proceed with refinement attempt as initial report exists and summaries are available
+            print("\nAttempting report refinement...")
             refined_report_filepath = refine_report_presentation(
                 initial_report_content,
                 top_summaries_for_refinement,
@@ -1897,17 +1917,22 @@ def main():
             )
             if refined_report_filepath:
                 print(f"\nSuccessfully refined report presentation.")
-                final_report_path_to_show = refined_report_filepath # Update to show the refined path
+                final_report_path_to_show = refined_report_filepath # Update path
             else:
-                print("\nWarning: Report refinement failed or was skipped. The initial (unrefined) report is available.")
-                log_to_file("Warning: Report refinement failed or was skipped.")
-                # Keep final_report_path_to_show as the initial path
-        else:
-            print("\nSkipping report refinement step as requested by --skip-refinement.")
-            log_to_file("Skipping report refinement step (--skip-refinement=True).")
-
+                print("\nWarning: Report refinement failed. The initial (unrefined) report is available.")
+                log_to_file("Warning: Report refinement failed.")
+                # Keep final_report_path_to_show as the initial path (already set in step 5)
 
         # --- Completion ---
+        # Safety check before printing the final path
+        if 'final_report_path_to_show' not in locals():
+             # This case should ideally not be reachable due to the RuntimeError in step 5
+             # if initial generation fails.
+             print("\n--- FATAL ERROR ---")
+             print("Error: Could not determine the final report path. Workflow halted.")
+             log_to_file("Completion Error: final_report_path_to_show was not defined.")
+             raise RuntimeError("Internal error: Final report path could not be determined before completion.")
+
         end_time = time.time()
         duration = end_time - start_time
         print("\n--- AI Report Generation Workflow Complete ---")
