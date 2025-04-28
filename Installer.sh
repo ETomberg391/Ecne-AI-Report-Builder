@@ -259,8 +259,80 @@ check_command "jq" "Please install jq (e.g., sudo apt install jq)" "jq" "$PKG_MA
 print_info "Core prerequisites check complete."
 echo
 
+# --- Setup Host Python Environment ---
+# Moved earlier to ensure venv exists before Chrome/ChromeDriver/wkhtmltopdf install steps
+print_info "Setting up Python virtual environment ('host_venv') for report_builder.py..."
+
+# Determine expected activation script path first
+VENV_ACTIVATE=""
+if [ "$OS_TYPE" = "windows" ]; then
+    VENV_ACTIVATE="./host_venv/Scripts/activate"
+else
+    VENV_ACTIVATE="./host_venv/bin/activate"
+fi
+
+if [ -d "host_venv" ]; then
+    print_warning "Host virtual environment 'host_venv' already exists."
+    if [ ! -f "$VENV_ACTIVATE" ]; then
+        print_error "Existing 'host_venv' appears incomplete (missing activation script: $VENV_ACTIVATE)."
+        read -p "Do you want to remove the existing 'host_venv' and recreate it? [Y/n]: " REMOVE_VENV
+        REMOVE_VENV=$(echo "$REMOVE_VENV" | tr '[:upper:]' '[:lower:]')
+        if [[ "$REMOVE_VENV" != "n" ]]; then
+            print_info "Removing existing 'host_venv'..."
+            rm -rf "host_venv"
+            print_info "Creating Python virtual environment 'host_venv'..."
+            $PYTHON_CMD -m venv "host_venv"
+        else
+            print_error "Cannot proceed with incomplete virtual environment. Please remove 'host_venv' manually and re-run."
+            exit 1
+        fi
+    else
+        print_info "Existing 'host_venv' found and appears valid. Skipping creation."
+        print_warning "If you encounter issues later, remove the 'host_venv' directory and re-run the script."
+    fi
+else
+    print_info "Creating Python virtual environment 'host_venv'..."
+    $PYTHON_CMD -m venv "host_venv"
+fi
+
+
+print_info "Activating venv and installing dependencies from requirements_host.txt..."
+
+# The VENV_ACTIVATE variable is now set earlier (before the if/else block checking the directory)
+# We still need the MSYS2 export for Windows cases if the venv exists or is created.
+if [ "$OS_TYPE" = "windows" ]; then
+    # Ensure Windows-style path handling in MSYS2/Git Bash
+    export MSYS2_ARG_CONV_EXCL="*"
+fi
+
+# Use subshell to activate, install, and deactivate without affecting parent script's environment
+(
+    if [ ! -f "$VENV_ACTIVATE" ]; then
+        # This check might be redundant now due to the check+recreate logic above, but keep for safety
+        print_error "Virtual environment activation script not found at: $VENV_ACTIVATE"
+    fi
+
+    source "$VENV_ACTIVATE"
+    print_info "Upgrading pip in host venv..."
+    $PIP_CMD install --upgrade pip
+
+    if [ -f "requirements_host.txt" ]; then
+        print_info "Installing host dependencies from requirements_host.txt..."
+        $PIP_CMD install -r "requirements_host.txt"
+    else
+        # Deactivate before erroring
+        deactivate
+        print_error "Could not find requirements_host.txt in the current directory. Cannot install host dependencies."
+    fi
+    print_info "Deactivating venv..."
+    deactivate
+)
+print_info "Host Python environment setup complete."
+echo
+
+
 # --- Optional Chrome/ChromeDriver Installation ---
-# OS detection is now done earlier, before prerequisite checks
+# (Now runs *after* venv setup)
 
 # --- ChromeDriver Setup Functions ---
 
@@ -890,52 +962,7 @@ else
     print_info "Skipping wkhtmltopdf installation."
 fi
 echo
-
-# --- Setup Host Python Environment ---
-print_info "Setting up Python virtual environment ('host_venv') for report_builder.py..."
-
-if [ ! -d "host_venv" ]; then
-    print_info "Creating Python virtual environment 'host_venv'..."
-    $PYTHON_CMD -m venv "host_venv"
-else
-    print_warning "Host virtual environment 'host_venv' already exists. Skipping creation."
-    print_warning "If you encounter issues, remove the 'host_venv' directory and re-run the script."
-fi
-
-print_info "Activating venv and installing dependencies from requirements_host.txt..."
-
-# Set platform-specific paths
-if [ "$OS_TYPE" = "windows" ]; then
-    VENV_ACTIVATE="./host_venv/Scripts/activate"
-    # Ensure Windows-style path handling in MSYS2/Git Bash
-    export MSYS2_ARG_CONV_EXCL="*"
-else
-    VENV_ACTIVATE="./host_venv/bin/activate"
-fi
-
-# Use subshell to activate, install, and deactivate without affecting parent script's environment
-(
-    if [ ! -f "$VENV_ACTIVATE" ]; then
-        print_error "Virtual environment activation script not found at: $VENV_ACTIVATE"
-    fi
-
-    source "$VENV_ACTIVATE"
-    print_info "Upgrading pip in host venv..."
-    $PIP_CMD install --upgrade pip
-
-    if [ -f "requirements_host.txt" ]; then
-        print_info "Installing host dependencies from requirements_host.txt..."
-        $PIP_CMD install -r "requirements_host.txt"
-    else
-        # Deactivate before erroring
-        deactivate
-        print_error "Could not find requirements_host.txt in the current directory. Cannot install host dependencies."
-    fi
-    print_info "Deactivating venv..."
-    deactivate
-)
-print_info "Host Python environment setup complete."
-echo
+# Removed obsolete comment from previous refactoring
 
 # --- Configuration File Setup ---
 print_info "Checking for root .env configuration file..."
