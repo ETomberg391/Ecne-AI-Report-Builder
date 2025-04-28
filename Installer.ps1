@@ -108,7 +108,7 @@ $chromeMajorVersion = $chromeVersion.Split(".")[0]
 Write-Info "Detected Chrome version: $chromeVersion (Major: $chromeMajorVersion)"
 
 # Check if ChromeDriver is already installed and matches Chrome version
-$chromedriverPath = "C:\Windows\chromedriver.exe"
+$chromedriverPath = ".\host_venv\Scripts\chromedriver.exe"
 $shouldInstallChromedriver = $true
 
 if (Test-Path $chromedriverPath) {
@@ -151,7 +151,7 @@ if ($shouldInstallChromedriver) {
     
     Write-Info "Downloading ChromeDriver from: $downloadUrl"
     $driverZip = "$env:TEMP\chromedriver_win64.zip"
-    $driverDir = "C:\Windows"
+    $driverDir = ".\host_venv\Scripts"
 
     Invoke-WebRequest $downloadUrl -OutFile $driverZip
     
@@ -162,6 +162,12 @@ if ($shouldInstallChromedriver) {
     $chromeDriverExe = Get-ChildItem -Path "$env:TEMP\chromedriver" -Recurse -Filter "chromedriver.exe" | Select-Object -First 1
     if (-not $chromeDriverExe) {
         throw "chromedriver.exe not found in extracted contents"
+    }
+    
+    # Ensure the target directory exists
+    if (-not (Test-Path $driverDir -PathType Container)) {
+        Write-Info "Creating directory: $driverDir"
+        New-Item -ItemType Directory -Path $driverDir -Force | Out-Null
     }
     
     Copy-Item $chromeDriverExe.FullName $driverDir -Force
@@ -318,7 +324,7 @@ if (-not (Test-Path $aiModelsPath)) {
             Copy-Item $exampleAiModelsPath $aiModelsPath -Force
             Write-Info "Successfully created $aiModelsPath from example."
         } catch {
-            Write-Error "Failed to copy $exampleAiModelsPath to $aiModelsPath: $_"
+            Write-Error "Failed to copy $exampleAiModelsPath to ${aiModelsPath}: $_"
             Write-Warning "LLM configuration might not be set correctly. Please check $aiModelsPath manually."
         }
     } else {
