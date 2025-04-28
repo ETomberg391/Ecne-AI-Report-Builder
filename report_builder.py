@@ -15,6 +15,7 @@ import PyPDF2 # Renamed from pypdf - assuming PyPDF2 is intended or needs update
 import docx
 import markdown # For converting markdown to HTML
 import pdfkit # For converting HTML to PDF
+import platform # For OS-specific checks
 # Removed PRAW import, adding Selenium imports
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -22,7 +23,7 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-# Removed webdriver-manager imports as installer script handles driver setup
+from webdriver_manager.chrome import ChromeDriverManager # Re-enable webdriver-manager
 
 # --- Constants & Configuration ---
 
@@ -678,8 +679,19 @@ def setup_selenium_driver():
         print("    - Setting up Selenium WebDriver (assuming ChromeDriver is in PATH)...")
         # If needed, browser path can be set via options.binary_location
         # If ChromeDriver is not in PATH, you might need to specify its location:
-        # service = ChromeService(executable_path='/path/to/your/chromedriver')
-        service = ChromeService() # Assumes chromedriver is in PATH
+        # service = ChromeService(executable_path='/path/to/your/chromedriver') # Old way
+        # Use webdriver-manager to automatically handle the driver path
+        try:
+             driver_path = ChromeDriverManager().install()
+             print(f"    - ChromeDriver path determined by webdriver-manager: {driver_path}")
+             service = ChromeService(executable_path=driver_path)
+        except Exception as wd_manager_error:
+             print(f"    - Error using ChromeDriverManager: {wd_manager_error}")
+             print("    - Falling back to assuming ChromeDriver is in PATH...")
+             log_to_file(f"Selenium Init Warning: ChromeDriverManager failed ({wd_manager_error}), falling back to PATH.")
+             # Fallback to original method if webdriver-manager fails
+             service = ChromeService()
+
         driver = webdriver.Chrome(service=service, options=options)
         print("    - Selenium WebDriver initialized successfully.")
         return driver
@@ -1403,15 +1415,36 @@ def convert_markdown_to_pdf(markdown_content, pdf_path):
         try:
             # Try with installed wkhtmltopdf first
             pdfkit.from_string(styled_html, pdf_path, options=options)
-        except OSError:
-            # If wkhtmltopdf is not in PATH, try with explicit path for Windows
-            config = pdfkit.configuration(wkhtmltopdf='C:\\Program Files\\wkhtmltopdf\\bin\\wkhtmltopdf.exe')
-            pdfkit.from_string(styled_html, pdf_path, options=options, configuration=config)
-        
-        return True
+        except OSError as e_initial:
+            # If wkhtmltopdf is not in PATH, try explicit Windows path ONLY if on Windows
+            if platform.system() == "Windows":
+                try:
+                    print("  - wkhtmltopdf not found in PATH, attempting default Windows path...")
+                    log_to_file("PDF Conversion: wkhtmltopdf not in PATH, trying C:\\Program Files\\wkhtmltopdf\\bin\\wkhtmltopdf.exe")
+                    config = pdfkit.configuration(wkhtmltopdf='C:\\Program Files\\wkhtmltopdf\\bin\\wkhtmltopdf.exe')
+                    pdfkit.from_string(styled_html, pdf_path, options=options, configuration=config)
+                    print("  - Successfully used wkhtmltopdf from default Windows path.")
+                    log_to_file("PDF Conversion: Success using default Windows path.")
+                    return True # Success using fallback
+                except OSError as e_fallback:
+                    # Fallback also failed
+                    print(f"  - Default Windows path for wkhtmltopdf also failed: {e_fallback}")
+                    log_to_file(f"PDF Conversion Error: Default Windows path failed: {e_fallback}")
+                    # Fall through to the general exception handling below
+                    raise e_fallback # Re-raise the error from the fallback attempt
+            else:
+                # Not on Windows, so the initial OSError means it's not installed/in PATH
+                print(f"  - wkhtmltopdf not found in PATH (OS: {platform.system()}).")
+                log_to_file(f"PDF Conversion Error: wkhtmltopdf not found in PATH (OS: {platform.system()}). Initial error: {e_initial}")
+                raise e_initial # Re-raise the original error
+
+        return True # Should be unreachable if exception occurs, but needed for structure
     except Exception as e:
-        print(f"PDF conversion warning: {e}")
-        print("PDF generation failed. Please install wkhtmltopdf from: https://wkhtmltopdf.org/downloads.html")
+        # Catch any exception during conversion (including re-raised OSErrors)
+        print(f"PDF conversion failed: {e}")
+        log_to_file(f"PDF Conversion Failed: {e}")
+        print("Please ensure wkhtmltopdf is installed and accessible in your system's PATH.")
+        print("Download from: https://wkhtmltopdf.org/downloads.html")
         return False
 
 def refine_report_presentation(initial_report_content, top_summaries, reference_docs_content, args, topic, config, timestamp, topic_slug):
