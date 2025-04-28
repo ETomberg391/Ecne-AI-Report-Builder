@@ -383,6 +383,30 @@ if ($useGemini -ne 'n') {
 
     if (Test-Path $envPath) {
         (Get-Content $envPath) |
+# Add venv Scripts directory to User PATH if not already present
+Write-Info "Ensuring venv Scripts directory is in User PATH..."
+try {
+    $venvScriptsPath = Resolve-Path ".\host_venv\Scripts" # Get full path
+    $currentUserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    if ($currentUserPath -notlike "*$($venvScriptsPath.Path)*") {
+        Write-Info "Adding $($venvScriptsPath.Path) to User PATH."
+        # Ensure no trailing semicolon if current path is empty or ends with one
+        $newPath = if ([string]::IsNullOrEmpty($currentUserPath) -or $currentUserPath.EndsWith(";")) {
+                       "$currentUserPath$($venvScriptsPath.Path)"
+                   } else {
+                       "$currentUserPath;$($venvScriptsPath.Path)"
+                   }
+        [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+        # Update current session's PATH as well
+        $env:PATH = "$env:PATH;$($venvScriptsPath.Path)"
+        Write-Warning "User PATH updated. You MUST restart your terminal or VS Code for this change to take full effect in new sessions."
+    } else {
+        Write-Info "venv Scripts directory already found in User PATH."
+    }
+} catch {
+    Write-Error "Failed to update User PATH: $_"
+    Write-Warning "ChromeDriver might not be automatically found. Ensure '.\host_venv\Scripts' is in your PATH."
+}
             ForEach-Object { $_ -replace '^DEFAULT_MODEL_CONFIG=.*', 'DEFAULT_MODEL_CONFIG="default_model"' } |
             Set-Content $envPath
         Write-Info "Set DEFAULT_MODEL_CONFIG to 'default_model' in .env"
