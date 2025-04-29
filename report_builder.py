@@ -15,6 +15,7 @@ import PyPDF2 # Renamed from pypdf - assuming PyPDF2 is intended or needs update
 import docx
 import markdown # For converting markdown to HTML
 import pdfkit # For converting HTML to PDF
+import platform # For OS-specific checks
 # Removed PRAW import, adding Selenium imports
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -22,8 +23,7 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from webdriver_manager.chrome import ChromeDriverManager # Added to manage chromedriver install
-from webdriver_manager.chrome import ChromeType # Corrected import path for ChromeType
+from webdriver_manager.chrome import ChromeDriverManager # Re-enable webdriver-manager
 
 # --- Constants & Configuration ---
 
@@ -675,13 +675,49 @@ def setup_selenium_driver():
         options.add_argument(f'user-agent={random.choice(USER_AGENTS)}')
         options.add_experimental_option('excludeSwitches', ['enable-logging']) # Suppress USB device errors
 
-        # Use webdriver-manager to handle driver download/update
-        print("    - Setting up Selenium WebDriver with webdriver-manager...")
-        # webdriver-manager will typically find the browser automatically.
-        # If needed, browser path can be set via options.binary_location
-        # service = ChromeService(ChromeDriverManager(chrome_type='chromium', driver_version='135.0.7049.95', path=chromium_path).install()) # Incorrect: path is not a valid arg for ChromeDriverManager constructor
-        service = ChromeService(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()) # Specify CHROMIUM type, let version be auto-detected
-        driver = webdriver.Chrome(service=service, options=options)
+        print("    - Setting up Selenium WebDriver...")
+
+        # --- Determine ChromeDriver Path ---
+        # Prioritize using the driver potentially installed by Installer.sh into the venv
+        driver_path = None
+        venv_driver_path = None
+        if platform.system() == "Windows":
+            venv_driver_path = os.path.abspath(os.path.join(SCRIPT_DIR, 'host_venv', 'Scripts', 'chromedriver.exe'))
+        else: # Linux or Mac
+            venv_driver_path = os.path.abspath(os.path.join(SCRIPT_DIR, 'host_venv', 'bin', 'chromedriver'))
+
+        if os.path.isfile(venv_driver_path) and os.access(venv_driver_path, os.X_OK):
+            print(f"    - Found script-installed ChromeDriver at: {venv_driver_path}")
+            log_to_file(f"Selenium Init: Using script-installed ChromeDriver: {venv_driver_path}")
+            driver_path = venv_driver_path
+        else:
+            print(f"    - Script-installed ChromeDriver not found at: {venv_driver_path}")
+            print(f"    - Falling back to webdriver-manager to find/download ChromeDriver...")
+            log_to_file(f"Selenium Init Warning: Script-installed ChromeDriver not found at {venv_driver_path}. Using webdriver-manager.")
+            try:
+                driver_path = ChromeDriverManager().install()
+                print(f"    - ChromeDriver path determined by webdriver-manager: {driver_path}")
+                log_to_file(f"Selenium Init: webdriver-manager provided ChromeDriver: {driver_path}")
+            except Exception as wd_manager_error:
+                print(f"    - ERROR: webdriver-manager also failed: {wd_manager_error}")
+                print(f"    - Cannot initialize Selenium. Please ensure ChromeDriver is installed and accessible.")
+                log_to_file(f"Selenium Init Error: webdriver-manager failed: {wd_manager_error}. Cannot find ChromeDriver.")
+                return None # Cannot proceed without a driver path
+
+        # --- Initialize Service and Driver ---
+        if driver_path:
+            try:
+                service = ChromeService(executable_path=driver_path)
+                driver = webdriver.Chrome(service=service, options=options)
+            except Exception as driver_init_error:
+                 print(f"    - Error initializing Chrome with driver at {driver_path}: {driver_init_error}")
+                 log_to_file(f"Selenium Init Error: Failed to start Chrome with driver {driver_path}: {driver_init_error}")
+                 return None
+        else:
+             # This case should be unreachable due to checks above, but safeguard
+             print("    - ERROR: Could not determine a valid ChromeDriver path.")
+             log_to_file("Selenium Init Error: No valid driver_path determined.")
+             return None
         print("    - Selenium WebDriver initialized successfully.")
         return driver
     except Exception as e:
@@ -1404,15 +1440,36 @@ def convert_markdown_to_pdf(markdown_content, pdf_path):
         try:
             # Try with installed wkhtmltopdf first
             pdfkit.from_string(styled_html, pdf_path, options=options)
-        except OSError:
-            # If wkhtmltopdf is not in PATH, try with explicit path for Windows
-            config = pdfkit.configuration(wkhtmltopdf='C:\\Program Files\\wkhtmltopdf\\bin\\wkhtmltopdf.exe')
-            pdfkit.from_string(styled_html, pdf_path, options=options, configuration=config)
-        
-        return True
+        except OSError as e_initial:
+            # If wkhtmltopdf is not in PATH, try explicit Windows path ONLY if on Windows
+            if platform.system() == "Windows":
+                try:
+                    print("  - wkhtmltopdf not found in PATH, attempting default Windows path...")
+                    log_to_file("PDF Conversion: wkhtmltopdf not in PATH, trying C:\\Program Files\\wkhtmltopdf\\bin\\wkhtmltopdf.exe")
+                    config = pdfkit.configuration(wkhtmltopdf='C:\\Program Files\\wkhtmltopdf\\bin\\wkhtmltopdf.exe')
+                    pdfkit.from_string(styled_html, pdf_path, options=options, configuration=config)
+                    print("  - Successfully used wkhtmltopdf from default Windows path.")
+                    log_to_file("PDF Conversion: Success using default Windows path.")
+                    return True # Success using fallback
+                except OSError as e_fallback:
+                    # Fallback also failed
+                    print(f"  - Default Windows path for wkhtmltopdf also failed: {e_fallback}")
+                    log_to_file(f"PDF Conversion Error: Default Windows path failed: {e_fallback}")
+                    # Fall through to the general exception handling below
+                    raise e_fallback # Re-raise the error from the fallback attempt
+            else:
+                # Not on Windows, so the initial OSError means it's not installed/in PATH
+                print(f"  - wkhtmltopdf not found in PATH (OS: {platform.system()}).")
+                log_to_file(f"PDF Conversion Error: wkhtmltopdf not found in PATH (OS: {platform.system()}). Initial error: {e_initial}")
+                raise e_initial # Re-raise the original error
+
+        return True # Should be unreachable if exception occurs, but needed for structure
     except Exception as e:
-        print(f"PDF conversion warning: {e}")
-        print("PDF generation failed. Please install wkhtmltopdf from: https://wkhtmltopdf.org/downloads.html")
+        # Catch any exception during conversion (including re-raised OSErrors)
+        print(f"PDF conversion failed: {e}")
+        log_to_file(f"PDF Conversion Failed: {e}")
+        print("Please ensure wkhtmltopdf is installed and accessible in your system's PATH.")
+        print("Download from: https://wkhtmltopdf.org/downloads.html")
         return False
 
 def refine_report_presentation(initial_report_content, top_summaries, reference_docs_content, args, topic, config, timestamp, topic_slug):
@@ -1873,18 +1930,39 @@ def main():
              log_to_file(f"Warning: No summaries met threshold {args.score_threshold}. Using only reference docs for report.")
 
         # 5. Generate Initial Report
-        # Capture the returned top_summaries list
-        initial_report_filepath, initial_report_content, top_summaries_for_refinement = generate_report(summaries, reference_docs_content, args.topic, env_config, args)
-        if not initial_report_filepath or not initial_report_content:
-             # top_summaries_for_refinement might be None or [] if generation failed early
-             raise RuntimeError("Failed to generate the initial research report.")
-        print(f"\nSuccessfully generated initial report (content length: {len(initial_report_content)} chars)")
-        final_report_path_to_show = initial_report_filepath # Default to initial if refinement skipped/fails
+        # Call generate_report and check the return value before unpacking
+        report_generation_result = generate_report(summaries, reference_docs_content, args.topic, env_config, args)
+
+        # Check if report generation was successful (returned 3 values)
+        if report_generation_result and len(report_generation_result) == 3:
+            initial_report_filepath, initial_report_content, top_summaries_for_refinement = report_generation_result
+            if not initial_report_filepath or not initial_report_content:
+                 # This condition might be redundant now but kept for safety
+                 raise RuntimeError("generate_report returned success status but file path or content is missing.")
+            print(f"\nSuccessfully generated initial report (content length: {len(initial_report_content)} chars)")
+            final_report_path_to_show = initial_report_filepath # Default to initial if refinement skipped/fails
+        else:
+            # Handle the case where generate_report failed (returned None, None or None, None, None)
+            raise RuntimeError("Failed to generate the initial research report. Check logs for details from generate_report function.")
+            # Note: top_summaries_for_refinement will not be defined in this case,
+            # so refinement step below will be skipped or needs adjustment if it relies on it.
 
         # 6. Refine Report Presentation (Conditional)
-        if not args.skip_refinement:
-            # Pass the captured top_summaries_for_refinement to the refinement function
-            # Pass the captured top_summaries_for_refinement, reference_docs_content, and args
+        if args.skip_refinement:
+            print("\nSkipping report refinement step as requested by --skip-refinement.")
+            log_to_file("Skipping report refinement step (--skip-refinement=True).")
+        elif 'initial_report_content' not in locals() or not initial_report_content:
+            # This case should only be hit if generate_report succeeded but returned empty content,
+            # which is unlikely given the checks, but handled defensively.
+            print("\nSkipping report refinement because initial report content is missing or empty.")
+            log_to_file("Refinement Skipped: Initial report content missing or empty.")
+        elif 'top_summaries_for_refinement' not in locals():
+             # This case implies generate_report succeeded but somehow didn't return the summaries list.
+             print("\nWarning: Cannot refine report because 'top_summaries_for_refinement' is missing. Skipping refinement.")
+             log_to_file("Refinement Skipped: 'top_summaries_for_refinement' not available.")
+        else:
+            # Proceed with refinement attempt as initial report exists and summaries are available
+            print("\nAttempting report refinement...")
             refined_report_filepath = refine_report_presentation(
                 initial_report_content,
                 top_summaries_for_refinement,
@@ -1897,17 +1975,22 @@ def main():
             )
             if refined_report_filepath:
                 print(f"\nSuccessfully refined report presentation.")
-                final_report_path_to_show = refined_report_filepath # Update to show the refined path
+                final_report_path_to_show = refined_report_filepath # Update path
             else:
-                print("\nWarning: Report refinement failed or was skipped. The initial (unrefined) report is available.")
-                log_to_file("Warning: Report refinement failed or was skipped.")
-                # Keep final_report_path_to_show as the initial path
-        else:
-            print("\nSkipping report refinement step as requested by --skip-refinement.")
-            log_to_file("Skipping report refinement step (--skip-refinement=True).")
-
+                print("\nWarning: Report refinement failed. The initial (unrefined) report is available.")
+                log_to_file("Warning: Report refinement failed.")
+                # Keep final_report_path_to_show as the initial path (already set in step 5)
 
         # --- Completion ---
+        # Safety check before printing the final path
+        if 'final_report_path_to_show' not in locals():
+             # This case should ideally not be reachable due to the RuntimeError in step 5
+             # if initial generation fails.
+             print("\n--- FATAL ERROR ---")
+             print("Error: Could not determine the final report path. Workflow halted.")
+             log_to_file("Completion Error: final_report_path_to_show was not defined.")
+             raise RuntimeError("Internal error: Final report path could not be determined before completion.")
+
         end_time = time.time()
         duration = end_time - start_time
         print("\n--- AI Report Generation Workflow Complete ---")

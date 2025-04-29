@@ -108,7 +108,7 @@ $chromeMajorVersion = $chromeVersion.Split(".")[0]
 Write-Info "Detected Chrome version: $chromeVersion (Major: $chromeMajorVersion)"
 
 # Check if ChromeDriver is already installed and matches Chrome version
-$chromedriverPath = "C:\Windows\chromedriver.exe"
+$chromedriverPath = ".\host_venv\Scripts\chromedriver.exe"
 $shouldInstallChromedriver = $true
 
 if (Test-Path $chromedriverPath) {
@@ -151,7 +151,7 @@ if ($shouldInstallChromedriver) {
     
     Write-Info "Downloading ChromeDriver from: $downloadUrl"
     $driverZip = "$env:TEMP\chromedriver_win64.zip"
-    $driverDir = "C:\Windows"
+    $driverDir = ".\host_venv\Scripts"
 
     Invoke-WebRequest $downloadUrl -OutFile $driverZip
     
@@ -162,6 +162,12 @@ if ($shouldInstallChromedriver) {
     $chromeDriverExe = Get-ChildItem -Path "$env:TEMP\chromedriver" -Recurse -Filter "chromedriver.exe" | Select-Object -First 1
     if (-not $chromeDriverExe) {
         throw "chromedriver.exe not found in extracted contents"
+    }
+    
+    # Ensure the target directory exists
+    if (-not (Test-Path $driverDir -PathType Container)) {
+        Write-Info "Creating directory: $driverDir"
+        New-Item -ItemType Directory -Path $driverDir -Force | Out-Null
     }
     
     Copy-Item $chromeDriverExe.FullName $driverDir -Force
@@ -306,6 +312,29 @@ if ($configureBrave -eq 'y') {
     }
 }
 
+# Check if ai_models.yml exists, copy from example if not
+$aiModelsPath = ".\settings\llm_settings\ai_models.yml"
+$exampleAiModelsPath = ".\settings\llm_settings\ai_models.example.yml"
+
+if (-not (Test-Path $aiModelsPath)) {
+    Write-Info "$aiModelsPath not found. Checking for example file..."
+    if (Test-Path $exampleAiModelsPath) {
+        Write-Info "Copying $exampleAiModelsPath to $aiModelsPath..."
+        try {
+            Copy-Item $exampleAiModelsPath $aiModelsPath -Force
+            Write-Info "Successfully created $aiModelsPath from example."
+        } catch {
+            Write-Error "Failed to copy $exampleAiModelsPath to ${aiModelsPath}: $_"
+            Write-Warning "LLM configuration might not be set correctly. Please check $aiModelsPath manually."
+        }
+    } else {
+        Write-Warning "$exampleAiModelsPath not found. Cannot create $aiModelsPath automatically."
+        Write-Warning "LLM configuration might not be set correctly. Please ensure $aiModelsPath exists and is configured."
+    }
+} else {
+    Write-Info "$aiModelsPath already exists."
+}
+
 # Configure LLM
 $useGemini = Read-Host "Do you want to use the recommended free Google Gemini Flash model? (Recommended) [Y/n]"
 if ($useGemini -ne 'n') {
@@ -354,6 +383,30 @@ if ($useGemini -ne 'n') {
 
     if (Test-Path $envPath) {
         (Get-Content $envPath) |
+# Add venv Scripts directory to User PATH if not already present
+Write-Info "Ensuring venv Scripts directory is in User PATH..."
+try {
+    $venvScriptsPath = Resolve-Path ".\host_venv\Scripts" # Get full path
+    $currentUserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    if ($currentUserPath -notlike "*$($venvScriptsPath.Path)*") {
+        Write-Info "Adding $($venvScriptsPath.Path) to User PATH."
+        # Ensure no trailing semicolon if current path is empty or ends with one
+        $newPath = if ([string]::IsNullOrEmpty($currentUserPath) -or $currentUserPath.EndsWith(";")) {
+                       "$currentUserPath$($venvScriptsPath.Path)"
+                   } else {
+                       "$currentUserPath;$($venvScriptsPath.Path)"
+                   }
+        [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+        # Update current session's PATH as well
+        $env:PATH = "$env:PATH;$($venvScriptsPath.Path)"
+        Write-Warning "User PATH updated. You MUST restart your terminal or VS Code for this change to take full effect in new sessions."
+    } else {
+        Write-Info "venv Scripts directory already found in User PATH."
+    }
+} catch {
+    Write-Error "Failed to update User PATH: $_"
+    Write-Warning "ChromeDriver might not be automatically found. Ensure '.\host_venv\Scripts' is in your PATH."
+}
             ForEach-Object { $_ -replace '^DEFAULT_MODEL_CONFIG=.*', 'DEFAULT_MODEL_CONFIG="default_model"' } |
             Set-Content $envPath
         Write-Info "Set DEFAULT_MODEL_CONFIG to 'default_model' in .env"
