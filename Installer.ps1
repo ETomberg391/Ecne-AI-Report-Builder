@@ -70,7 +70,61 @@ try {
 
 Write-Info "Core prerequisites met."
 
-# Chrome and ChromeDriver Installation
+# Set up Python virtual environment FIRST
+Write-Info "Setting up Python virtual environment..."
+$venvPath = ".\host_venv"
+if (-not (Test-Path $venvPath)) {
+    Write-Info "Creating virtual environment at $venvPath using $pythonCmd..."
+    & $pythonCmd -m venv $venvPath
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to create virtual environment."
+        exit 1
+    }
+} else {
+    Write-Warning "Virtual environment '$venvPath' already exists. Skipping creation."
+    Write-Warning "If you encounter issues, delete the '$venvPath' directory and run this script again."
+}
+
+# Define paths within the venv
+$venvPython = Join-Path $venvPath "Scripts\python.exe"
+$venvPip = Join-Path $venvPath "Scripts\pip.exe"
+
+# Check if venv executables exist
+if (-not (Test-Path $venvPython -PathType Leaf)) {
+    Write-Error "Python executable not found in virtual environment: $venvPython"
+    Write-Error "The virtual environment might be corrupted. Try deleting '$venvPath' and running the script again."
+    exit 1
+}
+
+# Determine pip command to use (prefer direct executable, fallback to module)
+$pipCmdToUse = if (Test-Path $venvPip -PathType Leaf) { $venvPip } else { "$venvPython -m pip" }
+if (-not (Test-Path $venvPip -PathType Leaf)) {
+    Write-Warning "pip executable not found at $venvPip. Using '$pipCmdToUse' instead."
+}
+
+# Install dependencies using the venv's Python/pip
+Write-Info "Installing Python dependencies into the virtual environment..."
+
+Write-Info "Upgrading pip within the virtual environment..."
+& $pipCmdToUse install --upgrade pip
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "Failed to upgrade pip within the virtual environment. Continuing..."
+    # Continue anyway, might work with existing pip
+}
+
+if (Test-Path "requirements_host.txt") {
+    Write-Info "Installing dependencies from requirements_host.txt into the virtual environment..."
+    & $pipCmdToUse install -r "requirements_host.txt"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to install dependencies from requirements_host.txt into the virtual environment."
+        exit 1
+    }
+} else {
+    Write-Error "requirements_host.txt not found. Cannot install dependencies."
+    exit 1
+}
+
+# Chrome and ChromeDriver Installation (AFTER venv setup)
 Write-Info "Checking for Chrome installation..."
 $chromeInstalled = Test-Path "C:\Program Files\Google\Chrome\Application\chrome.exe" -PathType Leaf
 $chromeInstalledX86 = Test-Path "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" -PathType Leaf
@@ -108,7 +162,8 @@ $chromeMajorVersion = $chromeVersion.Split(".")[0]
 Write-Info "Detected Chrome version: $chromeVersion (Major: $chromeMajorVersion)"
 
 # Check if ChromeDriver is already installed and matches Chrome version
-$chromedriverPath = ".\host_venv\Scripts\chromedriver.exe"
+# Note: $venvPath is defined earlier in the venv setup block
+$chromedriverPath = Join-Path $venvPath "Scripts\chromedriver.exe"
 $shouldInstallChromedriver = $true
 
 if (Test-Path $chromedriverPath) {
@@ -151,7 +206,8 @@ if ($shouldInstallChromedriver) {
     
     Write-Info "Downloading ChromeDriver from: $downloadUrl"
     $driverZip = "$env:TEMP\chromedriver_win64.zip"
-    $driverDir = ".\host_venv\Scripts"
+    # Use Join-Path for robustness
+    $driverDir = Join-Path $venvPath "Scripts"
 
     Invoke-WebRequest $downloadUrl -OutFile $driverZip
     
@@ -164,9 +220,10 @@ if ($shouldInstallChromedriver) {
         throw "chromedriver.exe not found in extracted contents"
     }
     
-    # Ensure the target directory exists
+    # Ensure the target directory exists (it should, as venv created it)
     if (-not (Test-Path $driverDir -PathType Container)) {
-        Write-Info "Creating directory: $driverDir"
+        # This case should ideally not happen if venv creation was successful
+        Write-Warning "Virtual environment Scripts directory '$driverDir' not found. Attempting to create."
         New-Item -ItemType Directory -Path $driverDir -Force | Out-Null
     }
     
@@ -237,31 +294,6 @@ if (-not $wkhtmltopdfInstalled) {
     } catch {
         Write-Warning "Could not determine wkhtmltopdf version"
     }
-}
-
-# Set up Python virtual environment
-Write-Info "Setting up Python virtual environment..."
-if (-not (Test-Path "host_venv")) {
-    & $pythonCmd -m venv "host_venv"
-} else {
-    Write-Warning "Virtual environment 'host_venv' already exists. Skipping creation."
-    Write-Warning "If you encounter issues, delete the 'host_venv' directory and run this script again."
-}
-
-# Activate virtual environment and install dependencies
-Write-Info "Installing Python dependencies..."
-$activateScript = ".\host_venv\Scripts\Activate.ps1"
-. $activateScript
-
-Write-Info "Upgrading pip..."
-& $pipCmd install --upgrade pip
-
-if (Test-Path "requirements_host.txt") {
-    Write-Info "Installing dependencies from requirements_host.txt..."
-    & $pipCmd install -r "requirements_host.txt"
-} else {
-    Write-Error "requirements_host.txt not found. Cannot install dependencies."
-    exit 1
 }
 
 # Set up configuration files
@@ -430,8 +462,10 @@ Write-Host "   python report_builder.py --topic `"Artificial Intelligence in Hea
 Write-Host "For Command Prompt (CMD) users:"
 Write-Host "1. Activate the virtual environment:"
 Write-Host "   host_venv\Scripts\activate.bat"
-Write-Host "2. Run the report builder:"
+Write-Host "2a. Run the report builder normal web search test:"
 Write-Host "   python report_builder.py --topic `"Artificial Intelligence in Healthcare`" --keywords `"AI diagnostics, machine learning drug discovery`"`n"
+Write-Host "2b. Run the report builder quick documents test:"
+Write-Host " python report_builder.py --topic `"What are Precise reforges in Mabinogi?`" --guidance `"Please use the following documents to find out what are Precise Reforges, how to get them with all the Free to play mechanics, what's recommended methods to acquire, what's not recommended, what do precise reforges do exactly, and a small sub section of what are journeyman reforges.`" --reference-docs-folder research\Example_Docs_Folder --no-search`"`n"
 
 Write-Host "Other Important Steps:"
 Write-Host "3. Ensure necessary API keys are correctly set in:"
