@@ -12,3 +12,4 @@ lxml_html_clean
 webdriver-manager
 markdown
 pdfkit
+flask
