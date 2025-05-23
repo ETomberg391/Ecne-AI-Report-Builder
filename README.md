@@ -127,23 +127,28 @@ Automated AI research report generation. Leverages web research (Google/Brave), 
 ## ▶️ Usage
 
 1.  **Activate Host Virtual Environment:**
-    
+
     For Windows CMD:
     ```cmd
     host_venv\Scripts\activate.bat
     ```
-    
+
     For PowerShell:
     ```powershell
     .\host_venv\Scripts\Activate.ps1
     ```
-    
+
     For Linux:
     ```bash
     source host_venv/bin/activate
     ```
 
 2.  **Generate a Report:**
+    *   **Start Web GUI:**
+        ```bash
+        python app.py
+        ```
+        (This will start a web server providing a graphical interface for creating reports.)
     *   **Basic Web Search:**
         ```bash
         python report_builder.py --topic "Artificial Intelligence in Healthcare" --keywords "AI diagnostics, machine learning drug discovery, predictive analytics patient care"
@@ -169,7 +174,7 @@ Automated AI research report generation. Leverages web research (Google/Brave), 
 3.  **Check Output:** Look for the `research_report.txt` file inside the `archive/` directory in the latest timestamped folder.
 
 4.  **Deactivate Environment:**
-    
+
     The same command works for both Windows and Linux:
     ```bash
     deactivate
@@ -179,7 +184,6 @@ Note: When specifying paths in commands, use:
 - Windows: backslashes (e.g., `research\Example_Docs_Folder`)
 - Linux: forward slashes (e.g., `research/Example_Docs_Folder`)
 
----
 
 ## 🔌 Dependencies & Credits
 
