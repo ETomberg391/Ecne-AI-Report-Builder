@@ -110,18 +110,36 @@ def main():
 
         # 2. Load Direct Articles (if specified)
         direct_article_urls = []
+        direct_articles_content = []
         if args.direct_articles:
             print(f"\nLoading direct articles from: {args.direct_articles}")
             log_to_file(f"Attempting to load direct articles from {args.direct_articles}")
             try:
-                with open(args.direct_articles, 'r', encoding='utf-8') as f:
-                    direct_article_urls = [line.strip() for line in f if line.strip() and line.strip().startswith(('http://', 'https://'))]
-                if direct_article_urls:
-                    print(f"Successfully loaded {len(direct_article_urls)} direct article URLs.")
-                    log_to_file(f"Loaded {len(direct_article_urls)} direct URLs: {direct_article_urls}")
+                # Check file extension to determine how to handle it
+                file_ext = os.path.splitext(args.direct_articles)[1].lower()
+                
+                if file_ext == '.txt':
+                    # Handle as URL list (original behavior)
+                    with open(args.direct_articles, 'r', encoding='utf-8') as f:
+                        direct_article_urls = [line.strip() for line in f if line.strip() and line.strip().startswith(('http://', 'https://'))]
+                    if direct_article_urls:
+                        print(f"Successfully loaded {len(direct_article_urls)} direct article URLs.")
+                        log_to_file(f"Loaded {len(direct_article_urls)} direct URLs: {direct_article_urls}")
+                    else:
+                        print(f"Warning: File {args.direct_articles} was empty or contained no valid URLs.")
+                        log_to_file(f"Warning: Direct articles file {args.direct_articles} empty or invalid.")
                 else:
-                    print(f"Warning: File {args.direct_articles} was empty or contained no valid URLs.")
-                    log_to_file(f"Warning: Direct articles file {args.direct_articles} empty or invalid.")
+                    # Handle as document content (new behavior for Excel, PDF, DOCX, etc.)
+                    from functions.scraping.documents import load_document
+                    doc_content = load_document(args.direct_articles)
+                    if doc_content:
+                        direct_articles_content = [doc_content]
+                        print(f"Successfully loaded direct articles document: {args.direct_articles}")
+                        log_to_file(f"Loaded direct articles document: {args.direct_articles}")
+                    else:
+                        print(f"Warning: Could not load content from direct articles file: {args.direct_articles}")
+                        log_to_file(f"Warning: Failed to load direct articles document: {args.direct_articles}")
+                        
             except FileNotFoundError:
                 print(f"Error: Direct articles file not found: {args.direct_articles}")
                 log_to_file(f"Error: Direct articles file not found: {args.direct_articles}")
@@ -192,17 +210,18 @@ def main():
              print("Skipping content scraping as no sources were provided/discovered for it.")
              # We proceed here because reference_docs_content might still exist
 
-        # Check if we have ANY content (scraped or reference) before summarizing
-        if not scraped_content and not reference_docs_content:
-             raise RuntimeError("No content available from scraping or reference documents. Cannot proceed.")
+        # Check if we have ANY content (scraped, reference, or direct articles) before summarizing
+        if not scraped_content and not reference_docs_content and not direct_articles_content:
+             raise RuntimeError("No content available from scraping, reference documents, or direct articles. Cannot proceed.")
 
         # 5. Summarize Content (scraped and/or reference docs if --reference-docs-summarize)
-        # Pass both scraped_content and reference_docs_content to summarize_content
-        summaries = summarize_content(scraped_content, reference_docs_content, args.topic, env_config, args)
+        # Combine reference docs and direct articles content for processing
+        all_reference_content = reference_docs_content + direct_articles_content
+        summaries = summarize_content(scraped_content, all_reference_content, args.topic, env_config, args)
         # Summarize_content now handles logic for reference docs internally based on args.reference_docs_summarize
         # Check if ANY summaries were successfully generated (score >= 0) OR if we have non-summarized reference docs to use
         have_valid_summaries = any(s['score'] >= 0 for s in summaries)
-        have_nonsummarized_ref_docs = reference_docs_content and not args.reference_docs_summarize
+        have_nonsummarized_ref_docs = all_reference_content and not args.reference_docs_summarize
 
         if not have_valid_summaries and not have_nonsummarized_ref_docs:
              raise RuntimeError(f"No summaries met the threshold ({args.score_threshold}) and no reference documents available for direct use. Cannot generate report.")
@@ -213,7 +232,7 @@ def main():
 
         # 6. Generate Initial Report
         # Call generate_report and check the return value before unpacking
-        report_generation_result = generate_report(summaries, reference_docs_content, args.topic, env_config, args)
+        report_generation_result = generate_report(summaries, all_reference_content, args.topic, env_config, args)
 
         # Check if report generation was successful (returned 3 values)
         if report_generation_result and len(report_generation_result) == 3:
@@ -248,7 +267,7 @@ def main():
             refined_report_filepath = refine_report_presentation(
                 initial_report_content,
                 top_summaries_for_refinement,
-                reference_docs_content, # Pass the list of reference docs
+                all_reference_content, # Pass the combined reference docs and direct articles
                 args,                   # Pass the args object
                 args.topic,
                 env_config,
