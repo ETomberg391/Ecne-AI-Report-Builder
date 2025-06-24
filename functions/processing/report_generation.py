@@ -191,7 +191,12 @@ def convert_markdown_to_pdf(markdown_content, pdf_path):
     log_to_file(f"Attempting to convert markdown to PDF: {pdf_path}")
     try:
         # Convert markdown to HTML with extensions for better formatting
-        html_content = markdown.markdown(markdown_content, extensions=['extra'])
+        html_content = markdown.markdown(markdown_content, extensions=[
+            'extra',      # Includes tables, fenced code blocks, etc.
+            'codehilite', # Syntax highlighting for code blocks
+            'toc',        # Table of contents
+            'nl2br'       # Convert newlines to <br> tags
+        ])
 
         # Use BeautifulSoup to parse HTML and add spaces before strong tags if needed
         from bs4 import BeautifulSoup
@@ -210,18 +215,93 @@ def convert_markdown_to_pdf(markdown_content, pdf_path):
         # Get the modified HTML back
         modified_html_content = str(soup)
 
-        # Add basic styling
+        # Add improved styling for better PDF formatting
         styled_html = f'''
 <html>
 <head>
     <meta charset="UTF-8">
     <style>
-        body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }}
-        h1, h2, h3 {{ color: #2c3e50; }}
-        h1 {{ border-bottom: 2px solid #2c3e50; padding-bottom: 10px; }}
-        ul, ol {{ margin-left: 20px; }}
-        code {{ background: #f8f9fa; padding: 2px 4px; border-radius: 4px; }}
-        blockquote {{ border-left: 4px solid #2c3e50; margin-left: 0; padding-left: 20px; }}
+        body {{
+            font-family: Arial, sans-serif;
+            max-width: 100%;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+            font-size: 12px;
+        }}
+        h1, h2, h3, h4, h5, h6 {{
+            color: #2c3e50;
+            margin-top: 24px;
+            margin-bottom: 12px;
+            page-break-after: avoid;
+        }}
+        h1 {{
+            border-bottom: 2px solid #2c3e50;
+            padding-bottom: 10px;
+            font-size: 20px;
+        }}
+        h2 {{ font-size: 18px; }}
+        h3 {{ font-size: 16px; }}
+        h4 {{ font-size: 14px; }}
+        ul, ol {{
+            margin-left: 20px;
+            margin-bottom: 16px;
+            padding-left: 0;
+        }}
+        li {{
+            margin-bottom: 6px;
+            line-height: 1.5;
+            page-break-inside: avoid;
+        }}
+        ul li {{ list-style-type: disc; }}
+        ul ul li {{ list-style-type: circle; }}
+        ul ul ul li {{ list-style-type: square; }}
+        p {{
+            margin-bottom: 12px;
+            line-height: 1.6;
+        }}
+        code {{
+            background: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: #e83e8c;
+            word-wrap: break-word;
+        }}
+        pre {{
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin-bottom: 16px;
+        }}
+        blockquote {{
+            border-left: 4px solid #2c3e50;
+            margin-left: 0;
+            padding-left: 20px;
+            margin-bottom: 16px;
+            font-style: italic;
+        }}
+        strong {{
+            font-weight: bold;
+            color: #2c3e50;
+        }}
+        table {{
+            border-collapse: collapse;
+            width: 100%;
+            margin-bottom: 16px;
+        }}
+        th, td {{
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }}
+        th {{
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }}
+        .page-break {{ page-break-before: always; }}
     </style>
 </head>
 <body>
@@ -230,7 +310,7 @@ def convert_markdown_to_pdf(markdown_content, pdf_path):
 </html>
 '''
 
-        # PDF conversion options
+        # PDF conversion options with improved formatting
         options = {
             'page-size': 'Letter',
             'margin-top': '0.75in',
@@ -238,7 +318,11 @@ def convert_markdown_to_pdf(markdown_content, pdf_path):
             'margin-bottom': '0.75in',
             'margin-left': '0.75in',
             'encoding': 'UTF-8',
-            'no-outline': None
+            'no-outline': None,
+            'enable-local-file-access': None,
+            'print-media-type': None,
+            'disable-smart-shrinking': None,
+            'zoom': '1.0'
         }
 
         try:

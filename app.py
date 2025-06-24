@@ -93,12 +93,14 @@ def generate_report():
         'reference-docs-summarize': '--reference-docs-summarize',
         'skip_refinement': '--skip_refinement',
         'no-reddit': '--no-reddit',
-        'report': '--report',
     }
 
     for field, arg in boolean_flags.items():
         if data.get(field) == 'on': # Checkbox value is 'on' when checked
             command.append(arg)
+    
+    # Always add --report flag since this is a report generation tool
+    command.append('--report')
 
     # Handle uploaded files and folders
     uploaded_ref_docs_paths = []
@@ -118,26 +120,6 @@ def generate_report():
             file.save(filepath)
             command.extend(['--direct-articles', filepath])
 
-    # Handle folder upload - Flask receives files within the folder individually
-    uploaded_folder_files = uploaded_files.getlist('reference-docs-folder')
-    if uploaded_folder_files:
-         # Find the first file's directory relative to the upload folder
-         first_file = uploaded_folder_files[0]
-         if first_file.filename:
-              # The filename includes the relative path from the dropped folder, e.g., 'my_folder/file1.txt'
-              relative_folder_path = os.path.dirname(first_file.filename)
-              if relative_folder_path:
-                   folder_path_in_uploads = os.path.join(app.config['UPLOAD_FOLDER'], relative_folder_path)
-                   # Save all files in the folder
-                   for file in uploaded_folder_files:
-                        if file.filename:
-                             filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
-                             os.makedirs(os.path.dirname(filepath), exist_ok=True)
-                             file.save(filepath)
-                   command.extend(['--reference-docs-folder', folder_path_in_uploads])
-    else:
-                  print("Warning: Files dropped for reference-docs-folder without a clear folder structure.")
-                  pass
 
 
     print(f"Executing command: {' '.join(command)}")

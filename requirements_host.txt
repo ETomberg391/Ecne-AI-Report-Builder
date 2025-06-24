@@ -13,3 +13,5 @@ webdriver-manager
 markdown
 pdfkit
 flask
+pandas
+openpyxl

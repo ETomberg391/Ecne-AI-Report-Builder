@@ -2,6 +2,7 @@ import os
 import PyPDF2 # Renamed from pypdf - assuming PyPDF2 is intended or needs update
 import docx
 import platform # For OS-specific checks
+import pandas as pd
 
 # Import log_to_file from utils
 from ..utils import log_to_file
@@ -73,6 +74,101 @@ def load_document(doc_path):
                 print(f"    - Error: Could not decode text file {doc_path} with tested encodings.")
                 log_to_file(f"Error: Failed to decode text file {doc_path}")
                 return None
+
+        elif file_ext in ['.xlsx', '.xlsm']:
+            try:
+                # Read Excel file and convert all sheets to text
+                excel_file = pd.ExcelFile(doc_path)
+                text_content = []
+                
+                for sheet_name in excel_file.sheet_names:
+                    print(f"    - Processing Excel sheet: {sheet_name}")
+                    df = pd.read_excel(doc_path, sheet_name=sheet_name)
+                    
+                    # Convert DataFrame to readable text format
+                    sheet_text = f"=== Sheet: {sheet_name} ===\n"
+                    
+                    # Add column headers
+                    if not df.empty:
+                        sheet_text += "Columns: " + ", ".join(str(col) for col in df.columns) + "\n\n"
+                        
+                        # Convert each row to text, handling NaN values
+                        for idx, row in df.iterrows():
+                            row_text = []
+                            for col in df.columns:
+                                value = row[col]
+                                if pd.isna(value):
+                                    row_text.append("")
+                                else:
+                                    row_text.append(str(value))
+                            sheet_text += f"Row {idx + 1}: " + " | ".join(row_text) + "\n"
+                    else:
+                        sheet_text += "Sheet is empty.\n"
+                    
+                    text_content.append(sheet_text)
+                
+                content = "\n\n".join(text_content)
+                print(f"    - Extracted text from Excel file ({len(excel_file.sheet_names)} sheets).")
+                log_to_file(f"Extracted text from Excel file: {doc_path} ({len(excel_file.sheet_names)} sheets)")
+                
+            except Exception as excel_e:
+                print(f"  - Error reading Excel file {doc_path}: {excel_e}")
+                log_to_file(f"Error reading Excel file {doc_path}: {excel_e}")
+                return None
+
+        elif file_ext == '.csv':
+            try:
+                # Try common encodings for CSV files
+                encodings_to_try = ['utf-8', 'latin-1', 'windows-1252']
+                df = None
+                
+                for enc in encodings_to_try:
+                    try:
+                        df = pd.read_csv(doc_path, encoding=enc)
+                        print(f"    - Read CSV file with encoding: {enc}")
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                    except Exception as csv_e:
+                        print(f"    - Error reading CSV with {enc}: {csv_e}")
+                        continue
+                
+                if df is None:
+                    print(f"    - Error: Could not read CSV file with any tested encoding.")
+                    log_to_file(f"Error: Failed to read CSV file {doc_path}")
+                    return None
+                
+                # Convert DataFrame to readable text format
+                text_content = []
+                text_content.append("=== CSV Data ===")
+                
+                # Add column headers
+                if not df.empty:
+                    text_content.append("Columns: " + ", ".join(str(col) for col in df.columns))
+                    text_content.append("")  # Empty line
+                    
+                    # Convert each row to text, handling NaN values
+                    for idx, row in df.iterrows():
+                        row_text = []
+                        for col in df.columns:
+                            value = row[col]
+                            if pd.isna(value):
+                                row_text.append("")
+                            else:
+                                row_text.append(str(value))
+                        text_content.append(f"Row {idx + 1}: " + " | ".join(row_text))
+                else:
+                    text_content.append("CSV file is empty.")
+                
+                content = "\n".join(text_content)
+                print(f"    - Extracted text from CSV file ({len(df)} rows).")
+                log_to_file(f"Extracted text from CSV file: {doc_path} ({len(df)} rows)")
+                
+            except Exception as csv_e:
+                print(f"  - Error reading CSV file {doc_path}: {csv_e}")
+                log_to_file(f"Error reading CSV file {doc_path}: {csv_e}")
+                return None
+
         else:
             print(f"    - Skipping unsupported file type: {doc_path}")
             log_to_file(f"Skipping unsupported reference file type: {doc_path}")
