@@ -1,0 +1,6 @@
+.env
+settings/llm_settings/ai_models.yml
+archive
+outputs
+*/__pycache__
+*.pyc
