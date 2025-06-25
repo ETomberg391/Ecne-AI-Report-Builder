@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOMContentLoaded event fired.'); // Debug log
     const reportForm = document.getElementById('report-form');
     const generateButton = document.getElementById('generate-button');
     const processStatusDiv = document.getElementById('process-status');
@@ -15,16 +16,53 @@ document.addEventListener('DOMContentLoaded', function() {
     const referenceDocsInput = document.getElementById('reference-docs');
     let uploadedReferenceDocs = []; // Store paths of uploaded reference docs
 
-    const referenceDocsFolderDropArea = document.getElementById('reference-docs-folder-drop-area');
-    const referenceDocsFolderPath = document.getElementById('reference-docs-folder-path');
-    const referenceDocsFolderInput = document.getElementById('reference-docs-folder');
-    let uploadedReferenceDocsFolder = null; // Store path of the uploaded folder
 
-    const directArticlesDropArea = document.getElementById('direct-articles-drop-area');
-    const directArticlesFilePath = document.getElementById('direct-articles-file-path');
-    const directArticlesInput = document.getElementById('direct-articles');
-    let uploadedDirectArticlesFile = null; // Store path of the uploaded file
+    const directArticlesUrlInput = document.getElementById('direct-articles-url');
+    const addArticleUrlButton = document.getElementById('add-article-url');
+    const directArticlesList = document.getElementById('direct-articles-list');
+    const directArticlesUrlsHiddenInput = document.getElementById('direct-articles-urls');
+    let directArticleUrls = []; // Store URLs
 
+
+    let startTime;
+    let timerInterval;
+
+    function startTimer() {
+        startTime = new Date().getTime();
+        timerInterval = setInterval(updateTimer, 1000);
+        loadingSpinner.style.display = 'block';
+        stopButton.style.display = 'inline-block'; // Show stop button
+    }
+
+    function stopTimer() {
+        clearInterval(timerInterval);
+        loadingSpinner.style.display = 'none';
+        stopButton.style.display = 'none'; // Hide stop button
+    }
+
+    function updateTimer() {
+        const currentTime = new Date().getTime();
+        const elapsedTime = currentTime - startTime;
+        const hours = Math.floor(elapsedTime / (1000 * 60 * 60));
+        const minutes = Math.floor((elapsedTime % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((elapsedTime % (1000 * 60)) / 1000);
+
+        timerSpan.textContent =
+            `${String(hours).padStart(2, '0')}:` +
+            `${String(minutes).padStart(2, '0')}:` +
+            `${String(seconds).padStart(2, '0')}`;
+    }
+
+    function displayTotalDuration() {
+        // The timer span already shows the total duration when stopped
+        // No additional action needed here unless a separate display is desired
+    }
+
+    function resetProcessStatus() {
+        generateButton.disabled = false;
+        processStatusDiv.style.display = 'none';
+        timerSpan.textContent = '00:00:00';
+    }
 
     // --- Helper Functions for Drag and Drop ---
     function preventDefaults(event) {
@@ -40,37 +78,9 @@ document.addEventListener('DOMContentLoaded', function() {
         element.classList.remove('highlight');
     }
 
-    function handleDrop(event, dropArea, fileInput, fileListElement = null, filePathElement = null, isFolder = false, isSingleFile = false) {
+    function handleDrop(event, dropArea, fileInput, fileListElement = null, filePathElement = null, isSingleFile = false) {
         const dt = event.dataTransfer;
-        let files = [];
-
-        if (isFolder) {
-             // For folder drop, we expect a single item which is the folder
-             if (dt.items && dt.items.length > 0 && dt.items[0].webkitGetAsEntry) {
-                  const entry = dt.items[0].webkitGetAsEntry();
-                  if (entry && entry.isDirectory) {
-                       // We don't process folder contents here, just indicate a folder was dropped
-                       // The actual files will be handled by the backend on upload
-                       filePathElement.textContent = `Folder: ${entry.name}`;
-                       // Store a placeholder or the folder name for now, actual path comes from backend
-                       uploadedReferenceDocsFolder = entry.name; // Placeholder
-                       // Clear any previously selected files for this input type
-                       fileInput.files = dt.files; // Assign the dropped files/folder to the input element
-                  } else {
-                       alert("Please drop a single folder.");
-                       filePathElement.textContent = '';
-                       uploadedReferenceDocsFolder = null;
-                       fileInput.value = ''; // Clear the file input
-                  }
-             } else {
-                  alert("Folder upload not supported in this browser.");
-                  filePathElement.textContent = '';
-                  uploadedReferenceDocsFolder = null;
-                  fileInput.value = ''; // Clear the file input
-             }
-        } else {
-             // For file drop
-             files = dt.files;
+        let files = dt.files;
 
              if (isSingleFile && files.length > 1) {
                   alert("Please drop only one file.");
@@ -120,10 +130,7 @@ document.addEventListener('DOMContentLoaded', function() {
              // Store the file names/paths temporarily. Actual paths will come from backend after upload.
              if (dropArea === referenceDocsDropArea) {
                  uploadedReferenceDocs = Array.from(files).map(f => f.name); // Store names for display
-             } else if (dropArea === directArticlesDropArea) {
-                 uploadedDirectArticlesFile = files.length > 0 ? files[0].name : null; // Store name for display
              }
-        }
 
         unhighlight(dropArea);
     }
@@ -131,72 +138,65 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Event Listeners for Drag and Drop ---
 
     // Reference Docs (Multiple Files)
+    // Reference Docs (Multiple Files) - Event Listeners
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         referenceDocsDropArea.addEventListener(eventName, preventDefaults, false);
     });
+
     ['dragenter', 'dragover'].forEach(eventName => {
         referenceDocsDropArea.addEventListener(eventName, () => highlight(referenceDocsDropArea), false);
     });
+
     ['dragleave', 'drop'].forEach(eventName => {
         referenceDocsDropArea.addEventListener(eventName, () => unhighlight(referenceDocsDropArea), false);
     });
-    referenceDocsDropArea.addEventListener('drop', (e) => handleDrop(e, referenceDocsDropArea, referenceDocsInput, referenceDocsList, null, false, false), false);
+
+    referenceDocsDropArea.addEventListener('drop', (e) => handleDrop(e, referenceDocsDropArea, referenceDocsInput, referenceDocsList, null, false), false);
+
     // Allow clicking the drop area to open file dialog
     referenceDocsDropArea.addEventListener('click', () => referenceDocsInput.click());
     referenceDocsInput.addEventListener('change', function() {
-         handleDrop({ dataTransfer: { files: this.files } }, referenceDocsDropArea, this, referenceDocsList, null, false, false);
+         handleDrop({ dataTransfer: { files: this.files } }, referenceDocsDropArea, this, referenceDocsList, null, false);
     });
 
 
-    // Reference Docs Folder (Single Folder)
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        referenceDocsFolderDropArea.addEventListener(eventName, preventDefaults, false);
-    });
-    ['dragenter', 'dragover'].forEach(eventName => {
-        referenceDocsFolderDropArea.addEventListener(eventName, () => highlight(referenceDocsFolderDropArea), false);
-    });
-    ['dragleave', 'drop'].forEach(eventName => {
-        referenceDocsFolderDropArea.addEventListener(eventName, () => unhighlight(referenceDocsFolderDropArea), false);
-    });
-    referenceDocsFolderDropArea.addEventListener('drop', (e) => handleDrop(e, referenceDocsFolderDropArea, referenceDocsFolderInput, null, referenceDocsFolderPath, true, true), false);
-     // Allow clicking the drop area to open folder dialog
-    referenceDocsFolderDropArea.addEventListener('click', () => referenceDocsFolderInput.click());
-    referenceDocsFolderInput.addEventListener('change', function() {
-         handleDrop({ dataTransfer: { files: this.files } }, referenceDocsFolderDropArea, this, null, referenceDocsFolderPath, true, true);
-    });
 
 
-    // Direct Articles File (Single .txt File)
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        directArticlesDropArea.addEventListener(eventName, preventDefaults, false);
+    // --- Handle Direct Articles URL Input ---
+    addArticleUrlButton.addEventListener('click', function() {
+        const url = directArticlesUrlInput.value.trim();
+        if (url) {
+            addUrlToList(url);
+            directArticlesUrlInput.value = ''; // Clear input
+        }
     });
-    ['dragenter', 'dragover'].forEach(eventName => {
-        directArticlesDropArea.addEventListener(eventName, () => highlight(directArticlesDropArea), false);
-    });
-    ['dragleave', 'drop'].forEach(eventName => {
-        directArticlesDropArea.addEventListener(eventName, () => unhighlight(directArticlesDropArea), false);
-    });
-    directArticlesDropArea.addEventListener('drop', (e) => handleDrop(e, directArticlesDropArea, directArticlesInput, null, directArticlesFilePath, false, true), false);
-     // Allow clicking the drop area to open file dialog
-    directArticlesDropArea.addEventListener('click', () => directArticlesInput.click());
-    directArticlesInput.addEventListener('change', function() {
-         handleDrop({ dataTransfer: { files: this.files } }, directArticlesDropArea, this, null, directArticlesFilePath, false, true);
-    });
+
+    function addUrlToList(url) {
+        if (!directArticleUrls.includes(url)) {
+            directArticleUrls.push(url);
+            const listItem = document.createElement('li');
+            listItem.textContent = url;
+            const removeButton = document.createElement('span');
+            removeButton.textContent = 'x';
+            removeButton.classList.add('remove-file'); // Re-use existing class for styling
+            removeButton.onclick = function() {
+                listItem.remove();
+                directArticleUrls = directArticleUrls.filter(item => item !== url);
+                directArticlesUrlsHiddenInput.value = directArticleUrls.join('\n'); // Update hidden input
+            };
+            listItem.appendChild(removeButton);
+            directArticlesList.appendChild(listItem);
+            directArticlesUrlsHiddenInput.value = directArticleUrls.join('\n'); // Update hidden input
+        }
+    }
 
 
     // --- Load LLM Models for Dropdown ---
     async function loadLlmModels() {
         try {
-            const response = await fetch('/'); // Fetch data from the index route
-            const text = await response.text(); // Get the HTML content as text
-            // We need to parse the HTML to find the data passed by Flask
-            // A better approach would be a dedicated endpoint to get models
-            // For now, let's assume Flask passes a JS variable or similar
-            // Or, we can make a new endpoint /get_llm_models
-
-            // Let's add a new endpoint for this
             const modelsResponse = await fetch('/get_llm_models');
             const modelsData = await modelsResponse.json();
+            console.log('LLM Models Data:', modelsData); // Debug log
 
             if (modelsData.llm_models) {
                  llmModelSelect.innerHTML = '<option value="">Select a model</option>'; // Clear existing
@@ -213,6 +213,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    console.log('Calling loadLlmModels...'); // Debug log
     // Call loadLlmModels when the page loads
     loadLlmModels();
 
@@ -231,8 +232,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // Append uploaded files to the FormData
         // Note: The file inputs already hold the dropped/selected files due to handleDrop
         // formData.append('reference-docs', referenceDocsInput.files); // This appends FileList, which FormData handles
-        // formData.append('direct-articles', directArticlesInput.files[0]); // Append the single file
-        // formData.append('reference-docs-folder', referenceDocsFolderInput.files); // Append the FileList for the folder
+        // Append direct article URLs as a single string
+        formData.append('direct-articles-urls', directArticleUrls.join('\n'));
 
         // Clear previous output and results
         outputDiv.textContent = '';
@@ -245,142 +246,79 @@ document.addEventListener('DOMContentLoaded', function() {
                 method: 'POST',
                 body: formData
             });
+ 
+            outputDiv.textContent = 'Starting report generation...\n';
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
 
-            const result = await response.json();
-
-            if (response.ok && result.status === 'processing') {
-                outputDiv.textContent = result.message + '\n';
-                // Start streaming output
-                streamOutput();
-            } else {
-                outputDiv.textContent = 'Error: ' + result.message + '\n' + (result.errors || '');
-                stopTimer(); // Stop timer on backend error
-                displayTotalDuration(); // Display duration on backend error
-                resetProcessStatus(); // Reset button/spinner/timer state on backend error
-            }
-
-        } catch (error) {
-            console.error('Error submitting form:', error);
-            outputDiv.textContent = 'An error occurred while submitting the form.';
-            stopTimer(); // Stop timer on fetch error
-            displayTotalDuration(); // Display duration on fetch error
-            resetProcessStatus(); // Reset button/spinner/timer state on fetch error
-        }
-    });
-
-    // --- Server-Sent Events (SSE) for Real-time Output ---
-    function streamOutput() {
-        const eventSource = new EventSource('/stream_output');
-
-        eventSource.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            if (data.type === 'output') {
-                outputDiv.textContent += data.content;
-                // Auto-scroll to the bottom
-                outputDiv.scrollTop = outputDiv.scrollHeight;
-            } else if (data.type === 'complete') {
-                outputDiv.textContent += "\n--- Process Complete ---\n";
-                resultsDiv.style.display = 'block';
-                reportLinksDiv.innerHTML = ''; // Clear previous links
-                if (data.report_files && data.report_files.length > 0) {
-                    data.report_files.forEach(file => {
-                        const link = document.createElement('a');
-                        // Assuming files are served from /reports/
-                        link.href = `/reports/${file.split('/').pop()}`; // Use filename only for the URL
-                        link.textContent = `Download ${file.split('/').pop()}`;
-                        link.target = '_blank'; // Open in new tab
-                        reportLinksDiv.appendChild(link);
-                        reportLinksDiv.appendChild(document.createElement('br'));
-                    });
-                } else {
-                    reportLinksDiv.textContent = "No report files found.";
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) {
+                    console.log('Stream complete');
+                    break;
                 }
-                eventSource.close(); // Close the connection when complete
-                stopTimer(); // Stop the timer on completion
-                displayTotalDuration(); // Display total duration
-                resetProcessStatus(); // Reset button/spinner/timer state
-            } else if (data.type === 'error') {
-                 outputDiv.textContent += `\n--- Error: ${data.content} ---\n`;
-                 stopTimer(); // Stop the timer on error
-                 displayTotalDuration(); // Display total duration
-                 resetProcessStatus(); // Reset button/spinner/timer state
+                buffer += decoder.decode(value, { stream: true });
+
+                // Process each complete SSE message
+                const messages = buffer.split('\n\n');
+                buffer = messages.pop(); // Keep incomplete message in buffer
+
+                for (const message of messages) {
+                    if (message.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(message.substring(6));
+                            if (data.type === 'output') {
+                                outputDiv.textContent += data.content;
+                                outputDiv.scrollTop = outputDiv.scrollHeight;
+                            } else if (data.type === 'complete') {
+                                outputDiv.textContent += "\n--- Process Complete ---\n";
+                                resultsDiv.style.display = 'block';
+                                reportLinksDiv.innerHTML = '';
+                                if (data.report_files && data.report_files.length > 0) {
+                                    data.report_files.forEach(file => {
+                                        const link = document.createElement('a');
+                                        link.href = `/reports/${file.split('/').pop()}`;
+                                        link.textContent = `Download ${file.split('/').pop()}`;
+                                        link.target = '_blank';
+                                        reportLinksDiv.appendChild(link);
+                                        reportLinksDiv.appendChild(document.createElement('br'));
+                                    });
+                                } else {
+                                    reportLinksDiv.textContent = "No report files found.";
+                                }
+                                stopTimer();
+                                displayTotalDuration();
+                                resetProcessStatus();
+                                reader.cancel(); // Stop reading the stream
+                                return; // Exit the function
+                            } else if (data.type === 'error') {
+                                outputDiv.textContent += `\n--- Error: ${data.content} ---\n`;
+                                stopTimer();
+                                displayTotalDuration();
+                                resetProcessStatus();
+                                reader.cancel(); // Stop reading the stream
+                                return; // Exit the function
+                            }
+                        } catch (e) {
+                            console.error('Error parsing SSE data:', e, 'Message:', message);
+                            // This might be a keep-alive message or malformed JSON, ignore for now
+                        }
+                    }
+                }
             }
-        };
+            // If the loop finishes without a 'complete' or 'error' type, it means the stream closed unexpectedly
+            outputDiv.textContent += '\n--- Connection to output stream closed or error occurred. ---\n';
+            stopTimer();
+            displayTotalDuration();
+            resetProcessStatus();
 
-        eventSource.onerror = function(event) {
-            console.error('SSE Error:', event);
-            outputDiv.textContent += '\n--- Connection to output stream closed. ---\n';
-            eventSource.close();
-            stopTimer(); // Stop the timer on SSE error
-            displayTotalDuration(); // Display total duration
-            resetProcessStatus(); // Reset button/spinner/timer state
-        };
-    }
-
-    // --- Timer Logic ---
-    let timerInterval;
-    let startTime;
-    let totalDuration = 0;
-
-    function startTimer() {
-        startTime = Date.now();
-        timerSpan.textContent = '00:00:00';
-        timerInterval = setInterval(updateTimer, 1000);
-    }
-
-    function updateTimer() {
-        const elapsed = Date.now() - startTime;
-        const seconds = Math.floor(elapsed / 1000);
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        const remainingSeconds = seconds % 60;
-
-        const formattedTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
-        timerSpan.textContent = formattedTime;
-        totalDuration = seconds; // Store total duration in seconds
-    }
-
-    function stopTimer() {
-        clearInterval(timerInterval);
-    }
-
-    function displayTotalDuration() {
-        const hours = Math.floor(totalDuration / 3600);
-        const minutes = Math.floor((totalDuration % 3600) / 60);
-        const seconds = totalDuration % 60;
-        const formattedDuration = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-        outputDiv.textContent += `\nTotal Duration: ${formattedDuration}\n`;
-    }
-
-    function resetProcessStatus() {
-        generateButton.disabled = false;
-        processStatusDiv.style.display = 'none';
-        stopButton.disabled = false; // Reset disabled state
-        stopButton.textContent = 'Stop Report'; // Reset text
-        timerSpan.textContent = '00:00:00'; // Reset timer display
-        totalDuration = 0; // Reset total duration
-    }
-
-
-    // --- Handle Stop Button Click ---
-    stopButton.addEventListener('click', async function() {
-        // Disable stop button while sending stop request
-        stopButton.disabled = true;
-        stopButton.textContent = 'Stopping...';
-        stopTimer(); // Stop the timer immediately on click
-
-        try {
-            const response = await fetch('/stop_report', {
-                method: 'POST'
-            });
-            const result = await response.json();
-            outputDiv.textContent += `\n--- ${result.message} ---\n`;
         } catch (error) {
-            console.error('Error sending stop signal:', error);
-            outputDiv.textContent += '\n--- Error sending stop signal. ---\n';
-        } finally {
-            resetProcessStatus(); // Reset button/spinner/timer state
+            console.error('Error submitting form or streaming output:', error);
+            outputDiv.textContent = 'An error occurred while submitting the form or streaming output.';
+            stopTimer();
+            displayTotalDuration();
+            resetProcessStatus();
         }
     });
-
 });

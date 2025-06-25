@@ -29,9 +29,6 @@ def load_config(script_dir):
         "google_api_key": os.getenv("GOOGLE_API_KEY"),
         "google_cse_id": os.getenv("GOOGLE_CSE_ID"),
         "brave_api_key": os.getenv("BRAVE_API_KEY"),
-        "reddit_client_id": os.getenv("REDDIT_CLIENT_ID"),
-        "reddit_client_secret": os.getenv("REDDIT_CLIENT_SECRET"),
-        "reddit_user_agent": os.getenv("REDDIT_USER_AGENT"),
     }
 
     # --- Load Model Configurations ---
@@ -63,10 +60,6 @@ def load_config(script_dir):
     if not google_ok and not brave_ok:
          print("Warning: Neither Google (API Key + CSE ID) nor Brave API Key are set. Web search may fail.")
          log_to_file("Warning: Neither Google nor Brave API keys set. Web search may fail.")
-    reddit_ok = all(config.get(k) for k in ["reddit_client_id", "reddit_client_secret", "reddit_user_agent"])
-    if not reddit_ok:
-        print("Warning: Reddit credentials (client_id, client_secret, user_agent) missing. Reddit scraping via Selenium will be used.")
-        log_to_file("Warning: Reddit credentials missing. Selenium scraping will be used.")
 
     print("Configuration loading process complete.")
     log_to_file("Configuration loading process complete.")

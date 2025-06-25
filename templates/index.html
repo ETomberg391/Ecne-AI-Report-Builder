@@ -4,11 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Report Builder</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="container">
-        <h1>AI Report Builder</h1>
+        <header>
+            <h1>AI Report Builder</h1>
+            <a href="{{ url_for('settings_page') }}" class="settings-button">⚙️ Settings</a>
+        </header>
 
         <form id="report-form">
             <div class="form-group">
@@ -43,68 +47,59 @@
             </div>
 
             <div class="form-group">
-                <label for="from_date">From Date:</label>
-                <input type="date" id="from_date" name="from_date">
-            </div>
-
-            <div class="form-group">
-                <label for="to_date">To Date:</label>
-                <input type="date" id="to_date" name="to_date">
-            </div>
-
-            <div class="form-group">
-                <label for="max-web-results">Max Web Results:</label>
-                <input type="number" id="max-web-results" name="max-web-results" value="3" min="1">
-            </div>
-
-            <div class="form-group">
-                <label for="max-reddit-results">Max Reddit Posts:</label>
-                <input type="number" id="max-reddit-results" name="max-reddit-results" value="5" min="0">
-            </div>
-
-            <div class="form-group">
-                <label for="max-reddit-comments">Max Reddit Comments per Post:</label>
-                <input type="number" id="max-reddit-comments" name="max-reddit-comments" value="5" min="0">
-            </div>
-
-            <div class="form-group">
-                <label for="per-keyword-results">Per Keyword Results (Optional):</label>
-                <input type="number" id="per-keyword-results" name="per-keyword-results" min="1">
-            </div>
-
-            <div class="form-group">
-                <label for="score-threshold">Score Threshold (0-10):</label>
-                <input type="number" id="score-threshold" name="score-threshold" value="5" min="0" max="10">
-            </div>
-
-            <div class="form-group checkbox-group">
-                <input type="checkbox" id="combine-keywords" name="combine-keywords">
-                <label for="combine-keywords">Combine Keywords</label>
-            </div>
-
-            <div class="form-group checkbox-group">
-                <input type="checkbox" id="no-search" name="no-search">
-                <label for="no-search">No Search (Use only provided documents/articles)</label>
-            </div>
-
-            <div class="form-group checkbox-group">
-                <input type="checkbox" id="reference-docs-summarize" name="reference-docs-summarize">
-                <label for="reference-docs-summarize">Summarize Reference Docs</label>
-            </div>
-
-            <div class="form-group checkbox-group">
-                <input type="checkbox" id="skip_refinement" name="skip_refinement">
-                <label for="skip_refinement">Skip Report Refinement</label>
-            </div>
-
-            <div class="form-group checkbox-group">
-                <input type="checkbox" id="no-reddit" name="no-reddit">
-                <label for="no-reddit">Exclude Reddit</label>
-            </div>
-
-             <div class="form-group checkbox-group">
-                <input type="checkbox" id="report" name="report" checked>
-                <label for="report">Generate Report (vs. just script)</label>
+                <details class="dropdown">
+                    <summary>Additional Options</summary>
+                    <div class="dropdown-content">
+                        <div class="form-group">
+                            <label for="from_date">From Date:</label>
+                            <input type="date" id="from_date" name="from_date">
+                        </div>
+                        <div class="form-group">
+                            <label for="to_date">To Date:</label>
+                            <input type="date" id="to_date" name="to_date">
+                        </div>
+                        <div class="form-group">
+                            <label for="max-web-results">Max Web Results:</label>
+                            <input type="number" id="max-web-results" name="max-web-results" value="3" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="max-reddit-results">Max Reddit Posts:</label>
+                            <input type="number" id="max-reddit-results" name="max-reddit-results" value="5" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label for="max-reddit-comments">Max Reddit Comments per Post:</label>
+                            <input type="number" id="max-reddit-comments" name="max-reddit-comments" value="5" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label for="per-keyword-results">Per Keyword Results (Optional):</label>
+                            <input type="number" id="per-keyword-results" name="per-keyword-results" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="score-threshold">Score Threshold (0-10):</label>
+                            <input type="number" id="score-threshold" name="score-threshold" value="5" min="0" max="10">
+                        </div>
+                        <div class="form-group checkbox-group">
+                            <input type="checkbox" id="combine-keywords" name="combine-keywords">
+                            <label for="combine-keywords">Combine Keywords</label>
+                        </div>
+                        <div class="form-group checkbox-group">
+                            <input type="checkbox" id="no-search" name="no-search">
+                            <label for="no-search">No Search (Use only provided documents/articles)</label>
+                        </div>
+                        <div class="form-group checkbox-group">
+                            <input type="checkbox" id="reference-docs-summarize" name="reference-docs-summarize">
+                            <label for="reference-docs-summarize">Summarize Reference Docs</label>
+                        </div>
+                        <div class="form-group checkbox-group">
+                            <input type="checkbox" id="skip_refinement" name="skip_refinement">
+                            <label for="skip_refinement">Skip Report Refinement</label>
+                        </div>
+                        <div class="form-group checkbox-group">
+                            <input type="checkbox" id="no-reddit" name="no-reddit">
+                            <label for="no-reddit">Exclude Reddit</label>
+                        </div>
+                    </div>
+                </details>
             </div>
 
 
@@ -115,18 +110,15 @@
                 <input type="file" id="reference-docs" name="reference-docs" multiple style="display: none;">
             </div>
 
-             <div class="form-group">
-                <label for="reference-docs-folder">Reference Documents Folder (Drag & Drop Folder):</label>
-                <div id="reference-docs-folder-drop-area" class="drop-area">Drag and drop a folder here</div>
-                 <p id="reference-docs-folder-path"></p>
-                <input type="file" id="reference-docs-folder" name="reference-docs-folder" webkitdirectory directory style="display: none;">
-            </div>
 
              <div class="form-group">
-                <label for="direct-articles">Direct Articles File (Drag & Drop .txt file):</label>
-                <div id="direct-articles-drop-area" class="drop-area">Drag and drop a .txt file here</div>
-                 <p id="direct-articles-file-path"></p>
-                <input type="file" id="direct-articles" name="direct-articles" accept=".txt" style="display: none;">
+                <label for="direct-articles-url">Direct Articles (Enter URLs):</label>
+                <div class="url-input-group">
+                    <input type="url" id="direct-articles-url" placeholder="Enter article URL">
+                    <button type="button" id="add-article-url">Add URL</button>
+                </div>
+                <ul id="direct-articles-list" class="url-list"></ul>
+                <input type="hidden" id="direct-articles-urls" name="direct-articles-urls">
             </div>
 
 

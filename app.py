@@ -40,11 +40,17 @@ def index():
     available_models = list(llm_settings.keys()) if llm_settings else []
     return render_template('index.html', llm_models=available_models)
 @app.route('/settings')
-def settings():
+def settings_page():
     """Render the settings page."""
+    return render_template('settings.html')
+
+@app.route('/api/settings', methods=['GET'])
+def get_settings_data():
+    """Return API keys and LLM settings as JSON."""
     api_keys = load_api_keys()
     llm_settings = load_llm_settings()
-    return render_template('settings.html', api_keys=api_keys, llm_settings=llm_settings)
+    return jsonify({"api_keys": api_keys, "llm_settings": llm_settings})
+
 @app.route('/get_llm_models', methods=['GET'])
 def get_llm_models():
     """Return the list of available LLM models."""
@@ -52,18 +58,18 @@ def get_llm_models():
     available_models = list(llm_settings.keys()) if llm_settings else []
     return jsonify({"llm_models": available_models})
 @app.route('/generate_report', methods=['POST'])
-def generate_report():
-    """Handle report generation requests and start the process."""
-    global process_thread, process_running, final_report_files
+def generate_report_stream():
+    """Handles report generation requests and streams output using Server-Sent Events."""
+    global process_thread, process_running, final_report_files, current_process
 
     if process_running:
-        return jsonify({"status": "error", "message": "A report generation process is already running."}), 409 # Conflict
+        return jsonify({"status": "error", "message": "A report generation process is already running."}), 409
 
     data = request.form
     uploaded_files = request.files
 
     # Construct the base command
-    command = ['python', 'report_builder.py']
+    command = ['python', '-u', 'report_builder.py']
 
     # Map form fields to command-line arguments
     arg_map = {
@@ -86,7 +92,7 @@ def generate_report():
         if value:
             command.extend([arg, value])
 
-    # Handle boolean flags
+    # Handle boolean flags (excluding 'report' as it's always generated)
     boolean_flags = {
         'combine-keywords': '--combine-keywords',
         'no-search': '--no-search',
@@ -96,10 +102,10 @@ def generate_report():
     }
 
     for field, arg in boolean_flags.items():
-        if data.get(field) == 'on': # Checkbox value is 'on' when checked
+        if data.get(field) == 'on':
             command.append(arg)
     
-    # Always add --report flag since this is a report generation tool
+    # Always add --report flag as per requirement
     command.append('--report')
 
     # Handle uploaded files and folders
@@ -113,13 +119,49 @@ def generate_report():
     if uploaded_ref_docs_paths:
         command.extend(['--reference-docs', ','.join(uploaded_ref_docs_paths)])
 
-    if 'direct-articles' in uploaded_files:
-        file = uploaded_files['direct-articles']
-        if file.filename:
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
-            file.save(filepath)
-            command.extend(['--direct-articles', filepath])
+    # Handle direct articles URLs
+    direct_articles_urls = data.get('direct-articles-urls')
+    if direct_articles_urls:
+        # Create a temporary file to store the URLs
+        temp_urls_filename = f"direct_articles_urls_{os.urandom(8).hex()}.txt"
+        temp_urls_filepath = os.path.join(app.config['UPLOAD_FOLDER'], temp_urls_filename)
+        with open(temp_urls_filepath, 'w') as f:
+            f.write(direct_articles_urls)
+        command.extend(['--direct-articles', temp_urls_filepath])
+        print(f"Direct articles URLs saved to: {temp_urls_filepath}")
 
+    # Handle reference-docs-folder
+    if 'reference-docs-folder' in uploaded_files:
+        folder_files = uploaded_files.getlist('reference-docs-folder')
+        if folder_files and folder_files[0].filename: # Check if a folder was actually selected
+            # For folders, the actual path is not directly available from client-side input.
+            # The backend needs to handle the folder upload and path.
+            # For now, we'll just pass a flag if a folder was selected.
+            # A more robust solution would involve zipping the folder on client-side or
+            # using a dedicated folder upload API.
+            # Assuming the backend can infer the folder path from the uploaded files if needed.
+            # For now, we'll just pass the first file's name as a placeholder for the folder.
+            # This part needs careful consideration with the backend's `load_reference_documents`
+            # which expects a path.
+            # Given the current `load_reference_documents` in `report_builder.py`
+            # it expects a path to a folder. The HTML input `webkitdirectory` provides
+            # files with their relative paths within the folder.
+            # We need to save these files to a temporary folder on the server and pass that folder's path.
+            
+            # Create a unique temporary directory for this folder upload
+            temp_folder_name = f"temp_ref_docs_folder_{os.urandom(8).hex()}"
+            temp_folder_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_folder_name)
+            os.makedirs(temp_folder_path, exist_ok=True)
+
+            for file in folder_files:
+                if file.filename:
+                    # file.filename for webkitdirectory includes path relative to selected folder
+                    # e.g., "my_folder/sub_dir/file.txt"
+                    file_save_path = os.path.join(temp_folder_path, file.filename)
+                    os.makedirs(os.path.dirname(file_save_path), exist_ok=True) # Ensure subdirs exist
+                    file.save(file_save_path)
+            command.extend(['--reference-docs-folder', temp_folder_path])
+            print(f"Uploaded folder contents to: {temp_folder_path}")
 
 
     print(f"Executing command: {' '.join(command)}")
@@ -132,42 +174,64 @@ def generate_report():
             pass
     final_report_files = []
 
-    # Execute the command in a separate thread for streaming
+    # Execute the command in a separate thread and stream output
     process_running = True
-    process_thread = threading.Thread(target=run_report_builder, args=(command,))
-    process_thread.start()
+    
+    def generate_stream():
+        global process_running, final_report_files, current_process
+        process = None
+        try:
+            process = subprocess.Popen(command, cwd='.', stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            current_process = process
 
-    return jsonify({"status": "processing", "message": "Report generation started. Please wait for progress."})
-@app.route('/stream_output')
-def stream_output():
-    """Streams output from the report generation subprocess using Server-Sent Events."""
-    def generate():
-        while process_running or not output_queue.empty():
-            try:
-                # Get output line from the queue with a timeout
-                line = output_queue.get(timeout=1)
-                if line is None: # Sentinel value to indicate end of process
-                    break
-                # Format as SSE data
+            # Use a non-blocking read with a timeout to allow for keep-alive messages
+            while process.poll() is None: # While the process is still running
+                line = process.stdout.readline()
+                if line:
+                    output_queue.put(line)
+                    yield f"data: {json.dumps({'type': 'output', 'content': line})}\n\n"
+                else:
+                    # Send a keep-alive message if no output for a short period
+                    yield "data: {'type': 'keep-alive'}\n\n" # Send a keep-alive message
+                
+            # After the process finishes, read any remaining output
+            for line in iter(process.stdout.readline, ''):
+                output_queue.put(line)
                 yield f"data: {json.dumps({'type': 'output', 'content': line})}\n\n"
-            except queue.Empty:
-                # No output in the last second, keep the connection alive
-                yield "data: {}\n\n" # Send a keep-alive message (empty JSON)
-            except Exception as e:
-                 print(f"Error streaming output: {e}")
-                 yield f"data: {json.dumps({'type': 'error', 'content': f'Streaming error: {e}'})}\n\n"
-                 break
 
-        # After the process finishes, send the final report file paths
-        yield f"data: {json.dumps({'type': 'complete', 'report_files': final_report_files})}\n\n"
+            process.wait() # Ensure the process has fully terminated
 
+            if process.returncode == 0:
+                output_queue.put("--- Report Generation Complete ---")
+                final_report_files = find_report_files()
+                output_queue.put(f"Generated files: {', '.join(final_report_files)}")
+                yield f"data: {json.dumps({'type': 'complete', 'report_files': final_report_files})}\n\n"
+            else:
+                output_queue.put(f"--- Report Generation Failed (Exit Code {process.returncode}) ---")
+                yield f"data: {json.dumps({'type': 'error', 'content': f'Report Generation Failed (Exit Code {process.returncode})'})}\n\n"
 
-    # Set up the response for Server-Sent Events
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['X-Accel-Buffering'] = 'no' # Disable buffering for Nginx
+        except FileNotFoundError:
+            error_msg = "Error: python or report_builder.py not found. Ensure Python is in your PATH and report_builder.py exists."
+            output_queue.put(error_msg)
+            yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
+        except Exception as e:
+            error_msg = f"An unexpected error occurred during subprocess execution: {e}"
+            output_queue.put(error_msg)
+            import traceback
+            output_queue.put(traceback.format_exc())
+            yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
+        finally:
+            output_queue.put(None) # Sentinel to indicate end
+            process_running = False
+            current_process = None
+
+    response = Response(generate_stream(), mimetype='text/event-stream')
+    response.headers['X-Accel-Buffering'] = 'no'
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['Connection'] = 'keep-alive'
     return response
+
+# The old stream_output route has been removed as its functionality is merged into generate_report_stream.
 
 @app.route('/reports/<filename>')
 def serve_report(filename):

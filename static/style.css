@@ -1,30 +1,56 @@
 body {
-    font-family: sans-serif;
-    line-height: 1.6;
+    font-family: Arial, sans-serif;
     margin: 0;
-    padding: 20px;
+    padding: 10px;
     background-color: #f4f4f4;
     color: #333;
 }
 
 .container {
-    max-width: 900px;
-    margin: 0 auto;
-    background: #fff;
-    padding: 20px 30px;
+    max-width: 800px;
+    margin: 20px auto;
+    background-color: #fff;
+    padding: 10px;
     border-radius: 8px;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+header h1 {
+    margin: 0;
+    color: #0056b3;
+}
+
+.settings-button {
+    background-color: #007bff;
+    color: white;
+    padding: 8px 15px;
+    border-radius: 5px;
+    text-decoration: none;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.settings-button:hover {
+    background-color: #0056b3;
 }
 
 h1, h2 {
     color: #0056b3;
-    border-bottom: 2px solid #eee;
-    padding-bottom: 10px;
+    text-align: center;
     margin-bottom: 20px;
 }
 
 .form-group {
-    margin-bottom: 15px;
+    margin-bottom: 10px;
 }
 
 .form-group label {
@@ -38,11 +64,15 @@ h1, h2 {
 .form-group input[type="date"],
 .form-group select,
 .form-group textarea {
-    width: 100%;
-    padding: 8px;
-    border: 1px solid #ccc;
+    width: calc(100% - 22px); /* Account for padding and border */
+    padding: 10px;
+    border: 1px solid #ddd;
     border-radius: 4px;
-    box-sizing: border-box; /* Include padding and border in element's total width and height */
+    font-size: 16px;
+}
+
+.form-group textarea {
+    resize: vertical;
 }
 
 .checkbox-group {
@@ -53,21 +83,100 @@ h1, h2 {
 
 .checkbox-group input[type="checkbox"] {
     margin-right: 10px;
+    width: auto; /* Override width for checkboxes */
 }
 
+button[type="submit"],
+button[type="button"] {
+    background-color: #007bff;
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 18px;
+    width: 100%;
+    box-sizing: border-box; /* Include padding and border in the element's total width and height */
+    margin-top: 10px;
+}
+
+button[type="submit"]:hover,
+button[type="button"]:hover {
+    background-color: #0056b3;
+}
+
+#process-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 20px;
+    font-size: 1.1em;
+    font-weight: bold;
+}
+
+.spinner {
+    border: 4px solid rgba(0, 0, 0, 0.1);
+    border-left-color: #007bff;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    animation: spin 1s linear infinite;
+    margin-right: 10px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+#output pre {
+    background-color: #e9e9e9;
+    padding: 15px;
+    border-radius: 5px;
+    white-space: pre-wrap; /* Preserve whitespace and wrap text */
+    word-wrap: break-word; /* Break long words */
+    max-height: 400px; /* Limit height */
+    overflow-y: auto; /* Enable scrolling */
+    margin-top: 20px;
+    border: 1px solid #ccc;
+}
+
+#results {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #d4edda;
+    border: 1px solid #28a745;
+    border-radius: 5px;
+    color: #155724;
+    text-align: center;
+}
+
+#report-links a {
+    display: block;
+    margin-top: 5px;
+    color: #007bff;
+    text-decoration: none;
+}
+
+#report-links a:hover {
+    text-decoration: underline;
+}
+
+/* Drop Area Styles */
 .drop-area {
     border: 2px dashed #ccc;
-    border-radius: 4px;
+    border-radius: 8px;
     padding: 20px;
     text-align: center;
+    color: #666;
     cursor: pointer;
     margin-top: 10px;
-    background-color: #f9f9f9;
+    transition: border .3s ease-in-out;
 }
 
 .drop-area.highlight {
     border-color: #007bff;
-    background-color: #e9e9e9;
+    background-color: #e6f7ff;
 }
 
 #reference-docs-list {
@@ -77,8 +186,8 @@ h1, h2 {
 }
 
 #reference-docs-list li {
-    background-color: #e9e9e9;
-    padding: 8px;
+    background-color: #f0f0f0;
+    padding: 8px 12px;
     margin-bottom: 5px;
     border-radius: 4px;
     display: flex;
@@ -86,113 +195,118 @@ h1, h2 {
     align-items: center;
 }
 
-#reference-docs-list li .remove-file {
+.remove-file {
     color: #dc3545;
     cursor: pointer;
     font-weight: bold;
+    margin-left: 10px;
 }
 
-button {
+#reference-docs-folder-path,
+#direct-articles-file-path {
+    margin-top: 10px;
+    font-style: italic;
+    color: #555;
+}
+
+/* Dropdown for Additional Options */
+.dropdown {
+    position: relative;
+    display: block; /* Changed from inline-block to block */
+    width: 100%; /* Ensure it takes full width */
+    margin-bottom: 15px; /* Add some space below */
+}
+
+.dropdown summary {
     background-color: #007bff;
     color: white;
-    padding: 10px 20px;
-    border: none;
-    border-radius: 4px;
+    padding: 10px 15px;
+    border-radius: 5px;
     cursor: pointer;
-    font-size: 16px;
-    margin-top: 10px;
+    font-weight: bold;
+    list-style: none; /* Remove default marker */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
-button:hover {
+.dropdown summary::-webkit-details-marker {
+    display: none; /* Hide default marker for Webkit browsers */
+}
+
+.dropdown summary:hover {
     background-color: #0056b3;
 }
 
-#output pre {
-    background-color: #333;
-    color: #f4f4f4;
+.dropdown-content {
+    display: none; /* Hidden by default */
     padding: 15px;
-    border-radius: 4px;
-    overflow-x: auto;
-    white-space: pre-wrap; /* Wrap long lines */
-    word-wrap: break-word; /* Break words if necessary */
-    max-height: 300px; /* Set a fixed maximum height */
-    overflow-y: auto; /* Enable vertical scrolling */
+    border: 1px solid #ddd;
+    border-top: none;
+    border-radius: 0 0 5px 5px;
+    background-color: #f9f9f9;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
 }
 
-#results {
-    margin-top: 20px;
-    padding: 15px;
-    background-color: #d4edda;
-    color: #155724;
-    border: 1px solid #c3e6cb;
-    border-radius: 4px;
+.dropdown[open] .dropdown-content {
+    display: block; /* Show when details is open */
 }
 
-#report-links a {
-    display: inline-block;
-    margin-right: 15px;
-    color: #004085;
-    text-decoration: none;
-    font-weight: bold;
+.dropdown-content .checkbox-group {
+    margin-bottom: 8px; /* Adjust spacing within dropdown */
 }
 
-#report-links a:hover {
-    text-decoration: underline;
+/* Settings Page Specific Styles */
+nav {
+    margin-bottom: 20px;
+    text-align: center;
 }
 
 nav a {
-    margin-right: 15px;
+    display: inline-block;
+    padding: 10px 15px;
+    background-color: #007bff;
+    color: white;
     text-decoration: none;
-    color: #007bff;
+    border-radius: 5px;
+    margin: 0 5px;
 }
 
 nav a:hover {
-    text-decoration: underline;
+    background-color: #0056b3;
 }
 
 .settings-section {
-    margin-bottom: 30px;
-    padding-bottom: 20px;
-    border-bottom: 1px dashed #ccc;
-}
-
-.settings-section:last-child {
-    border-bottom: none;
-}
-
-#llm-model-details {
-    border: 1px solid #eee;
-    padding: 15px;
-    margin-top: 15px;
-    border-radius: 4px;
     background-color: #f9f9f9;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    border: 1px solid #eee;
 }
 
-#llm-model-details .form-group input[readonly] {
-    background-color: #e9e9e9;
+.settings-section h2, .settings-section h3 {
+    color: #0056b3;
+    margin-top: 0;
+    margin-bottom: 15px;
+    text-align: left;
 }
 
-#delete-llm-model {
-    background-color: #dc3545;
+/* Styles for URL input group */
+.url-input-group {
+    display: flex;
+    gap: 10px; /* Space between input and button */
 }
 
-#delete-llm-model:hover {
-    background-color: #c82333;
+.url-input-group input[type="url"] {
+    flex-grow: 1; /* Allow input to take available space */
+    width: auto; /* Override default width */
+    padding: 8px 10px; /* Slightly smaller padding for input */
 }
 
-/* Spinner animation */
-.spinner {
-    border: 4px solid rgba(255, 255, 255, 0.3);
-    border-radius: 50%;
-    border-top: 4px solid #007bff;
-    width: 20px;
-    height: 20px;
-    animation: spin 1s linear infinite;
-    display: inline-block;
-    vertical-align: middle;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+.url-input-group button {
+    width: auto; /* Allow button to size based on content */
+    padding: 8px 15px; /* Smaller padding for the button */
+    font-size: 16px; /* Smaller font size */
+    margin-top: 0; /* Remove top margin */
+    flex-shrink: 0; /* Prevent button from shrinking */
 }
