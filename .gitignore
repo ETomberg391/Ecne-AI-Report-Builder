@@ -4,3 +4,5 @@ archive
 outputs
 */__pycache__
 *.pyc
+host_venv
+

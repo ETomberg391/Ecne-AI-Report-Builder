@@ -5,8 +5,11 @@ import threading
 import queue
 import json
 import yaml
+import sys # Import sys to get the current Python executable path
+import re # Import re for regex parsing
 from dotenv import load_dotenv, set_key
 from flask import Response # Import Response for SSE
+from functions.ai import call_ai_api # Import call_ai_api
 
 # Load environment variables from .env file at the start
 load_dotenv()
@@ -69,7 +72,7 @@ def generate_report_stream():
     uploaded_files = request.files
 
     # Construct the base command
-    command = ['python', '-u', 'report_builder.py']
+    command = [sys.executable, '-u', 'report_builder.py']
 
     # Map form fields to command-line arguments
     arg_map = {
@@ -274,6 +277,70 @@ def load_api_keys():
         "REDDIT_CLIENT_SECRET": os.getenv("REDDIT_CLIENT_SECRET", ""),
         "REDDIT_USER_AGENT": os.getenv("REDDIT_USER_AGENT", ""),
     }
+
+@app.route('/generate_ai_suggestions', methods=['POST'])
+def generate_ai_suggestions():
+    """
+    Generates topic, keywords, and guidance using AI based on user description.
+    """
+    data = request.json
+    description = data.get('description')
+    llm_model_key = data.get('llm_model')
+
+    if not description or not llm_model_key:
+        return jsonify({"status": "error", "message": "Description and LLM model are required."}), 400
+
+    llm_settings = load_llm_settings()
+    selected_model_config = llm_settings.get(llm_model_key)
+
+    if not selected_model_config:
+        return jsonify({"status": "error", "message": f"LLM model '{llm_model_key}' not found in settings."}), 404
+
+    # Prepare config for call_ai_api
+    ai_config = {
+        "selected_model_config": selected_model_config,
+        "final_model_key": llm_model_key # Pass the key for logging/error messages
+    }
+
+    prompt_template = """
+    Based on the following research description, please generate a concise Topic, three Key Phrases for searching (comma-separated), and detailed Guidance for the research paper.
+    Ensure each output is enclosed in specific XML-like tags:
+    <Topic_Idea>Your generated topic here</Topic_Idea>
+    <Key_Phrases>keyword1, keyword2, keyword3</Key_Phrases>
+    <Guidance_Idea>Your detailed guidance here</Guidance_Idea>
+
+    Research Description:
+    {description}
+    """
+    prompt = prompt_template.format(description=description)
+
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        print(f"Attempt {attempt} to generate AI suggestions for '{llm_model_key}'...")
+        raw_response, cleaned_response = call_ai_api(prompt, ai_config, tool_name="AI Suggestions")
+
+        if cleaned_response:
+            topic_match = re.search(r"<Topic_Idea>(.*?)</Topic_Idea>", cleaned_response, re.DOTALL)
+            keywords_match = re.search(r"<Key_Phrases>(.*?)</Key_Phrases>", cleaned_response, re.DOTALL)
+            guidance_match = re.search(r"<Guidance_Idea>(.*?)</Guidance_Idea>", cleaned_response, re.DOTALL)
+
+            topic = topic_match.group(1).strip() if topic_match else None
+            keywords = keywords_match.group(1).strip() if keywords_match else None
+            guidance = guidance_match.group(1).strip() if guidance_match else None
+
+            if topic and keywords and guidance:
+                return jsonify({
+                    "status": "success",
+                    "topic": topic,
+                    "keywords": keywords,
+                    "guidance": guidance
+                })
+            else:
+                print(f"Attempt {attempt} failed to extract all required fields. Retrying...")
+        else:
+            print(f"Attempt {attempt} received no response or an error from AI. Retrying...")
+
+    return jsonify({"status": "error", "message": f"Failed to generate AI suggestions after {max_attempts} attempts. Please try again or refine your description."}), 500
 
 def load_llm_settings():
     """Loads LLM model configurations from settings/llm_settings/ai_models.yml."""

@@ -121,3 +121,86 @@ def discover_sources(keywords_list, config, args):
         return non_reddit_sources
     else:
         return validated_sources
+
+def perform_direct_keyword_search(keywords_list, config, args):
+    """
+    Performs a direct web search for each keyword using the specified search API
+    and returns a list of unique URLs.
+    """
+    print("\nPerforming direct keyword web search...")
+    log_to_file("Starting direct keyword web search.")
+    
+    all_found_urls = set()
+    results_limit_per_api_call = args.per_keyword_results if args.per_keyword_results else args.max_web_results # Use per-keyword limit if set, else max-web-results
+
+    for keyword_idx, keyword in enumerate(keywords_list, 1):
+        search_query = keyword.strip()
+        if not search_query:
+            continue
+
+        print(f"  - Searching for keyword {keyword_idx}/{len(keywords_list)}: '{search_query}' (Limit: {results_limit_per_api_call})")
+        log_to_file(f"Direct Keyword Search: Query {keyword_idx}: '{search_query}' (Limit: {results_limit_per_api_call})")
+
+        api_results = None
+        primary_api = args.api
+        fallback_api = 'brave' if primary_api == 'google' else 'google'
+
+        # Attempt Primary API
+        print(f"    - Attempting primary API: {primary_api}")
+        log_to_file(f"Direct Keyword Search: Attempting primary API: {primary_api}")
+        if primary_api == 'google':
+            api_results = search_google_api(search_query, config, results_limit_per_api_call, args.from_date, args.to_date)
+        else: # brave
+            api_results = search_brave_api(search_query, config, results_limit_per_api_call, args.from_date, args.to_date)
+
+        quota_hit = api_results == 'quota_error'
+        failed = api_results is None
+
+        if quota_hit:
+            print(f"    - Primary API '{primary_api}' quota limit hit.")
+            log_to_file(f"Direct Keyword Search: Primary API '{primary_api}' quota limit hit.")
+        elif failed:
+            print(f"    - Primary API '{primary_api}' failed or returned no results.")
+            log_to_file(f"Direct Keyword Search: Primary API '{primary_api}' failed or returned no results.")
+
+        # Attempt Fallback API if primary failed (not due to quota initially) or hit quota
+        if failed or quota_hit:
+            print(f"    - Attempting fallback API: {fallback_api}")
+            log_to_file(f"Direct Keyword Search: Attempting fallback API: {fallback_api}")
+            if fallback_api == 'google':
+                api_results_fallback = search_google_api(search_query, config, results_limit_per_api_call, args.from_date, args.to_date)
+            else: # brave
+                api_results_fallback = search_brave_api(search_query, config, results_limit_per_api_call, args.from_date, args.to_date)
+
+            if api_results_fallback == 'quota_error':
+                print(f"    - Fallback API '{fallback_api}' also hit quota limit.")
+                log_to_file(f"Direct Keyword Search: Fallback API '{fallback_api}' also hit quota limit.")
+                if quota_hit: api_results = None # Both hit quota, give up
+            elif api_results_fallback is None:
+                print(f"    - Fallback API '{fallback_api}' also failed or returned no results.")
+                log_to_file(f"Direct Keyword Search: Fallback API '{fallback_api}' also failed or returned no results.")
+                if quota_hit: api_results = None # Primary hit quota, fallback failed
+            elif isinstance(api_results_fallback, list):
+                print(f"    - Fallback API '{fallback_api}' succeeded.")
+                log_to_file(f"Direct Keyword Search: Fallback API '{fallback_api}' succeeded.")
+                api_results = api_results_fallback # Use fallback results
+
+        # Add successfully found URLs
+        if isinstance(api_results, list):
+            added_count = 0
+            for url in api_results:
+                if url not in all_found_urls:
+                    all_found_urls.add(url)
+                    added_count += 1
+            print(f"    - Added {added_count} new unique URLs from API search for '{search_query}'.")
+            log_to_file(f"Direct Keyword Search: Added {added_count} URLs for query '{search_query}'.")
+        else:
+            print(f"    - No URLs obtained from APIs for keyword '{search_query}'.")
+            log_to_file(f"Direct Keyword Search Failed/Empty for keyword '{search_query}'.")
+
+        time.sleep(random.uniform(1, 2)) # Delay between API calls for different keywords
+
+    final_urls = list(all_found_urls)
+    print(f"\nFinished direct keyword web search. Total unique URLs found: {len(final_urls)}")
+    log_to_file(f"Direct Keyword Search: Complete. Total unique URLs: {len(final_urls)}")
+    return final_urls
