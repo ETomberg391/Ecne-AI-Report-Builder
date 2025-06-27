@@ -1,8 +1,9 @@
 # Update notes - 6/25/2025:
-- Remaking some features and trying to turn it into a wrapped up package using maybe pyinstaller.
-- Readme is outdated. For linux try to just run ./Installer.sh and then ./run_app.sh
-- Windows TBA with fixed easy .bat installer/runner
-- Going to try to work in a single script to check for env and tools used to then install, and change the API key settings directly into WebGUI instead. Some popup maybe to say "No Search API found would you like to add?" "No LLM API Found, would you like to add?". Simplify the installations.
+- Still testing Dev-Exe branch to recreate the project into a simplified .exe for Windows users (Mainly for my Niece).
+- Readme is outdated.
+   - For linux try to just run ./Installer.sh and then ./run_app.sh,
+   - for Windows users right as admin the Install.bat and then run the run_app.bat
+- Going to try to work in some logic to combine the installation with the run_app scripts to simplify the entire process into a single run, and just some popup first time running to tell the user to go to setting menu to set Brave API and LLM AI settings, and add in a checker buttons for ChromeDriver and NTLK.
 
 
 
