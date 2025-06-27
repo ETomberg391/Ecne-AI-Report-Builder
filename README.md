@@ -1,6 +1,7 @@
 # Update notes - 6/25/2025:
 - Remaking some features and trying to turn it into a wrapped up package using maybe pyinstaller.
 - Readme is outdated. For linux try to just run ./Installer.sh and then ./run_app.sh
+- Windows TBA with fixed easy .bat installer/runner
 - Going to try to work in a single script to check for env and tools used to then install, and change the API key settings directly into WebGUI instead. Some popup maybe to say "No Search API found would you like to add?" "No LLM API Found, would you like to add?". Simplify the installations.
 
 

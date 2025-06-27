@@ -14,6 +14,8 @@
             <a href="{{ url_for('settings_page') }}" class="settings-button">⚙️ Settings</a>
         </header>
 
+        <button type="button" id="easy-mode-button" class="easy-mode-button">✨ Easy Mode: AI Topic/Keywords/Guidance</button>
+
         <form id="report-form">
             <div class="form-group">
                 <label for="topic">Topic:</label>
@@ -143,5 +145,31 @@
     </div>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
+
+    <!-- Easy Mode Popup -->
+    <div id="easy-mode-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2>Easy Mode: Describe Your Research</h2>
+            <p>Please provide a detailed description of what you want to research. The AI will generate a topic, keywords, and guidance based on your input.</p>
+            <textarea id="research-description" rows="8" placeholder="E.g., 'I need a report on the impact of artificial intelligence on modern education, focusing on personalized learning and teacher roles.'"></textarea>
+            <div class="form-group">
+                <label for="easy-mode-llm-model">LLM Model:</label>
+                <select id="easy-mode-llm-model" name="easy-mode-llm-model">
+                    <!-- Options will be populated dynamically by JavaScript -->
+                    <option value="">Select a model</option>
+                </select>
+            </div>
+            <button type="button" id="submit-research-description">Generate AI Suggestions</button>
+            <div id="easy-mode-status" style="display: none; align-items: center; justify-content: center; margin-top: 10px;">
+                <div id="easy-mode-spinner" class="spinner"></div>
+                <span id="easy-mode-message" style="margin-left: 10px; font-weight: bold;">Generating...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fading Message Popup -->
+    <div id="fading-message-popup" class="fading-popup"></div>
+
 </body>
 </html

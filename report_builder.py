@@ -173,8 +173,18 @@ def main():
             # Keywords are required here (validated by parser)
             discovered_sources = discover_sources(args.search_queries, env_config, args) # Pass env_config and args
 
+            # 3.5. Perform Direct Keyword Search (New Step)
+            direct_keyword_search_urls = []
+            if args.keywords: # Only perform if keywords are provided
+                print("\nPerforming direct web search using keywords...")
+                log_to_file("Source Determination: Performing direct web search using keywords.")
+                from functions.search.discovery import perform_direct_keyword_search # Import here to avoid circular dependency if needed
+                direct_keyword_search_urls = perform_direct_keyword_search(args.keywords.split(','), env_config, args)
+                print(f"Found {len(direct_keyword_search_urls)} URLs from direct keyword search.")
+                log_to_file(f"Source Determination: Found {len(direct_keyword_search_urls)} URLs from direct keyword search.")
+
             # Combine and deduplicate sources for scraping
-            combined_sources = direct_article_urls + discovered_sources # Prioritize direct URLs
+            combined_sources = direct_article_urls + discovered_sources + direct_keyword_search_urls # Prioritize direct URLs, then AI, then direct keyword search
             seen_sources = set()
             unique_combined_sources = []
             for src in combined_sources:
@@ -185,7 +195,7 @@ def main():
 
             sources_for_scraping = unique_combined_sources
             print(f"Combined sources for scraping: {len(sources_for_scraping)} unique sources/URLs.")
-            log_to_file(f"Source Determination: Combined {len(discovered_sources)} discovered sources with {len(direct_article_urls)} direct URLs, resulting in {len(sources_for_scraping)} unique items for scraping.")
+            log_to_file(f"Source Determination: Combined {len(discovered_sources)} discovered sources, {len(direct_article_urls)} direct URLs, and {len(direct_keyword_search_urls)} direct keyword search URLs, resulting in {len(sources_for_scraping)} unique items for scraping.")
 
             if not sources_for_scraping and not reference_docs_content:
                  # If search was active but we found no sources AND have no reference docs, we can't proceed.
