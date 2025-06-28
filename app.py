@@ -14,6 +14,82 @@ from functions.ai import call_ai_api # Import call_ai_api
 # Load environment variables from .env file at the start
 load_dotenv()
 
+# PyInstaller frozen path handling
+def get_base_path():
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.abspath(".")
+
+@app.before_first_request
+def initialize_app():
+    # Setup paths for frozen EXE
+    base_path = get_base_path()
+    app.template_folder = os.path.join(base_path, 'templates')
+    app.static_folder = os.path.join(base_path, 'static')
+    
+    # Check components on startup
+    check_chromedriver()
+    setup_ntlk_data()
+# PyInstaller frozen path handling
+def get_base_path():
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.abspath(".")
+
+@app.before_first_request
+def initialize_app():
+    # Setup paths for frozen EXE
+    base_path = get_base_path()
+    app.template_folder = os.path.join(base_path, 'templates')
+    app.static_folder = os.path.join(base_path, 'static')
+    
+    # Check components on startup
+    check_chromedriver()
+    setup_ntlk_data()
+# PyInstaller frozen path handling
+def get_base_path():
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.abspath(".")
+
+@app.before_first_request
+def initialize_app():
+    # Setup paths for frozen EXE
+    base_path = get_base_path()
+    app.template_folder = os.path.join(base_path, 'templates')
+    app.static_folder = os.path.join(base_path, 'static')
+    
+    # Check components on startup
+    check_chromedriver()
+    setup_ntlk_data()
+# PyInstaller frozen path handling
+def get_base_path():
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.abspath(".")
+
+# PyInstaller frozen path handling
+def get_base_path():
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.abspath(".")
+
+# PyInstaller frozen path handling
+def get_base_path():
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.abspath(".")
+
+@app.before_first_request
+def initialize_app():
+    # Setup paths for frozen EXE
+    base_path = get_base_path()
+    app.template_folder = os.path.join(base_path, 'templates')
+    app.static_folder = os.path.join(base_path, 'static')
+    
+    # Check components on startup
+    check_chromedriver()
+    setup_ntlk_data()
 # Global queue to hold output from the subprocess
 output_queue = queue.Queue()
 
@@ -35,7 +111,48 @@ app.config['UPLOAD_FOLDER'] = 'uploads' # Directory to save uploaded files
 # Ensure upload folder exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
+# Check Chrome/Driver version on startup
+@app.before_first_request
+def check_chromedriver_version():
+    chrome_version = get_chrome_version()
+    driver_version = get_chromedriver_version()
+    if not check_versions_match(chrome_version, driver_version):
+        flash(f'ChromeDriver version mismatch! Chrome: {chrome_version} vs Driver: {driver_version}', 'warning')
 # --- Routes ---
+
+# ChromeDriver Management Endpoints
+@app.route('/api/chromedriver/status')
+def chromedriver_status():
+    chrome_ver = get_chrome_version()
+    try:
+        driver_ver = subprocess.check_output(['chromedriver', '--version'], text=True)
+        driver_ver = re.search(r'\d+\.\d+\.\d+', driver_ver).group()
+        compatible = chrome_ver.split('.')[0] == driver_ver.split('.')[0]
+        return jsonify({
+            'chrome': chrome_ver,
+            'driver': driver_ver,
+            'compatible': compatible
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/chromedriver/update', methods=['POST'])
+def update_chromedriver():
+    try:
+        ps_script = '''
+        $chromeVer = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe').Version
+        $majorVer = $chromeVer.Split('.')[0]
+        $driverVer = (Invoke-RestMethod "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$majorVer").Trim()
+        Invoke-WebRequest "https://chromedriver.storage.googleapis.com/$driverVer/chromedriver_win32.zip" -OutFile "$env:TEMP\chromedriver.zip"
+        Expand-Archive -Path "$env:TEMP\chromedriver.zip" -DestinationPath "$pwd" -Force
+        '''
+        subprocess.run([
+            'powershell', '-ExecutionPolicy', 'Bypass', '-Command', ps_script
+        ], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        return jsonify({'status': 'success'})
+    except subprocess.CalledProcessError as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/')
 def index():
     """Render the main report generation page."""
