@@ -171,5 +171,15 @@
     <!-- Fading Message Popup -->
     <div id="fading-message-popup" class="fading-popup"></div>
 
+    <!-- API Key Warning Popup -->
+    {% if show_api_warning %}
+    <div id="api-warning-modal" class="modal" style="display: block;">
+        <div class="modal-content">
+            <span class="close-button" id="api-warning-close">&times;</span>
+            <h2>API Key Warning</h2>
+            <p>No Google or Brave Search API detected. Please go to the <a href="{{ url_for('settings_page') }}">Settings</a> menu to enter an API key, and configure AI LLM settings to use this project.</p>
+        </div>
+    </div>
+    {% endif %}
 </body>
 </html

@@ -41,7 +41,12 @@ def index():
     """Render the main report generation page."""
     llm_settings = load_llm_settings()
     available_models = list(llm_settings.keys()) if llm_settings else []
-    return render_template('index.html', llm_models=available_models)
+    
+    # Check for API keys
+    api_keys = load_api_keys()
+    show_api_warning = not (api_keys.get("GOOGLE_API_KEY") or api_keys.get("BRAVE_API_KEY"))
+    
+    return render_template('index.html', llm_models=available_models, show_api_warning=show_api_warning)
 @app.route('/settings')
 def settings_page():
     """Render the settings page."""
@@ -246,13 +251,22 @@ def serve_report(filename):
     
 @app.route('/save_settings', methods=['POST'])
 def save_settings():
-    """Handle saving API keys and LLM settings."""
+    """Handle saving API keys and LLM settings intelligently."""
     data = request.json
-    api_keys_data = data.get('apiKeys', {})
-    llm_settings_data = data.get('llmSettings', {})
+    
+    # Initialize success flags and messages
+    api_success, llm_success = True, True
+    api_message, llm_message = "", ""
 
-    api_success, api_message = save_api_keys(api_keys_data)
-    llm_success, llm_message = save_llm_settings(llm_settings_data)
+    # Check if 'apiKeys' data is present in the request and save it
+    if 'apiKeys' in data:
+        api_keys_data = data.get('apiKeys', {})
+        api_success, api_message = save_api_keys(api_keys_data)
+
+    # Check if 'llmSettings' data is present in the request and save it
+    if 'llmSettings' in data:
+        llm_settings_data = data.get('llmSettings', {})
+        llm_success, llm_message = save_llm_settings(llm_settings_data)
 
     if api_success and llm_success:
         return jsonify({"status": "success", "message": "Settings saved successfully."})
@@ -370,7 +384,11 @@ def save_api_keys(api_keys_data):
         for key, value in api_keys_data.items():
             # set_key handles adding/updating keys
             set_key(dotenv_path, key, value)
-        print("API keys saved to .env")
+        
+        # Force reload of the .env file into the environment
+        load_dotenv(override=True)
+        
+        print("API keys saved to .env and reloaded.")
         return True, "API keys saved successfully."
     except Exception as e:
         print(f"Error saving API keys to .env: {e}")

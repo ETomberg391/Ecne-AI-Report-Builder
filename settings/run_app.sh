@@ -8,8 +8,8 @@ set -e
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Change to the project directory
-cd "$SCRIPT_DIR"
+# Change to the project directory (one level up from script)
+cd "$SCRIPT_DIR/.."
 
 # Check if virtual environment exists
 VENV_PATH="host_venv"
@@ -43,5 +43,19 @@ echo "Starting Flask application..."
 echo "The app will be available at: http://localhost:5000"
 echo "Press Ctrl+C to stop the application"
 echo ""
+
+# Function to open URL in default browser
+open_url() {
+    local url="$1"
+    case "$(uname -s)" in
+        Linux*)     xdg-open "$url" >/dev/null 2>&1 ;;
+        Darwin*)    open "$url" >/dev/null 2>&1 ;;
+        CYGWIN*|MINGW*|MSYS*) start "$url" >/dev/null 2>&1 ;;
+        *)          echo "Please open your browser and navigate to $url" ;;
+    esac
+}
+
+# Give the server a moment to start, then open the browser
+(sleep 2 && open_url "http://127.0.0.1:5000/") &
 
 python app.py

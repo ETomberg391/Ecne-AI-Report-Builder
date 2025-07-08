@@ -434,3 +434,25 @@ nav a:hover {
 .fading-popup.show {
     opacity: 1;
 }
+
+/* API Warning Modal Styles */
+#api-warning-modal .modal-content {
+    border-color: #ffc107; /* A warning yellow */
+}
+
+#api-warning-modal h2 {
+    color: #d39e00; /* A darker yellow for the heading */
+}
+
+#api-warning-modal p {
+    font-size: 1.1em;
+}
+
+#api-warning-modal a {
+    color: #007bff;
+    text-decoration: underline;
+}
+
+#api-warning-modal a:hover {
+    color: #0056b3;
+}

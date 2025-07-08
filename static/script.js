@@ -447,4 +447,20 @@ document.addEventListener('DOMContentLoaded', function() {
             fadingMessagePopup.classList.remove('show');
         }, 3000); // Message fades out after 3 seconds
     }
+
+    // --- API Warning Modal Logic ---
+    const apiWarningModal = document.getElementById('api-warning-modal');
+    const apiWarningCloseButton = document.getElementById('api-warning-close');
+
+    if (apiWarningModal && apiWarningCloseButton) {
+        apiWarningCloseButton.addEventListener('click', function() {
+            apiWarningModal.style.display = 'none';
+        });
+
+        window.addEventListener('click', function(event) {
+            if (event.target == apiWarningModal) {
+                apiWarningModal.style.display = 'none';
+            }
+        });
+    }
 });

@@ -105,6 +105,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const result = await response.json();
             if (response.ok) {
                 alert(result.message);
+                location.reload();
             } else {
                 alert('Error saving API keys: ' + result.message);
             }
@@ -167,9 +168,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const result = await response.json();
             if (response.ok) {
                 alert(result.message);
-                loadSettings(); // Reload settings to update dropdown and state
-                llmModelSelect.value = selectedKey === 'new-llm' ? '' : selectedKey; // Reset or keep selected
-                llmModelSelect.dispatchEvent(new Event('change')); // Trigger change to update display
+                location.reload(); // Reload the page to reflect all changes
             } else {
                 alert('Error saving LLM settings: ' + result.message);
             }
