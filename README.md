@@ -2,7 +2,7 @@
 - Updated to a single Installer/Ruynner for Linux. Still working on pyinstall into an EXE for Windows to handle into a single runner as well.
 - Readme is outdated.
    - For linux try to just run ./run_main.sh,
-   - for Windows users right as admin the Install.bat and then run the run_app.bat
+   - for Windows users right-click as admin the Install.bat and then run the run_app.bat
 - Process is run the .sh, say yes to the installation requests, it will auto-open the browser with the main page, and will take you o settings to set your Brave/Google search API and AI LLM settings. Then go back to main and recommend the AI Easy Mode for building the topic/search words, guidance for a report. Press generate button and give it 10~45 minutes to produce a text and PDF versions of he report.
 
 <img src="https://github.com/user-attachments/assets/e766db6f-21ce-4d02-a4fc-8050832d0c53" alt="generatedreportExample1" width="48%"><img src="https://github.com/user-attachments/assets/cd608837-dc2d-4e8a-b280-a77bcf494e3b" alt="generatedreportExample2" width="48%"> 
