@@ -95,6 +95,43 @@ check_command() {
      return 0
 }
 
+check_venv() {
+    print_info "Checking for Python's 'venv' module..."
+    if ! $PYTHON_CMD -m venv -h >/dev/null 2>&1; then
+        print_error "Python's 'venv' module is missing. This is required to create a virtual environment."
+        
+        local venv_pkg_name=""
+        case "$PKG_MANAGER" in
+            apt)
+                venv_pkg_name="python3-venv"
+                ;;
+            dnf|yum)
+                # On modern Fedora/RHEL, venv is often in its own package.
+                venv_pkg_name="python3-venv"
+                ;;
+            zypper)
+                venv_pkg_name="python3-venv" # Or python3.x-venv depending on version
+                ;;
+            pacman)
+                print_error "On Arch-based systems, 'venv' should be included with the main 'python' package. Your Python installation may be broken or incomplete."
+                exit 1
+                ;;
+            *)
+                # Fallback for unknown package managers
+                print_error "Could not determine the package name for the 'venv' module on your system."
+                print_error "Please install the Python 3 'venv' module manually."
+                exit 1
+                ;;
+        esac
+
+        print_error "Please try to install it using your package manager. For example:"
+        print_error "  sudo $INSTALL_CMD $venv_pkg_name"
+        exit 1
+    else
+        print_info "'venv' module found."
+    fi
+}
+
 # --- Main Script ---
 
 echo "-----------------------------------------------------"
@@ -255,6 +292,9 @@ check_command "${PIP_CMD}" "Please install pip for Python 3 (e.g., sudo apt inst
 check_command "curl" "Please install curl (e.g., sudo apt install curl)" "curl" "$PKG_MANAGER" "$INSTALL_CMD"
 check_command "unzip" "Please install unzip (e.g., sudo apt install unzip)" "unzip" "$PKG_MANAGER" "$INSTALL_CMD"
 check_command "jq" "Please install jq (e.g., sudo apt install jq)" "jq" "$PKG_MANAGER" "$INSTALL_CMD"
+
+# Check for the venv module after ensuring python3 is installed
+check_venv
 
 print_info "Core prerequisites check complete."
 echo
