@@ -3,7 +3,7 @@
 - Readme is outdated.
    - For linux try to just run ./run_main.sh,
    - for Windows users right-click as admin the Install.bat and then run the run_app.bat
-- Process is run the .sh, say yes to the installation requests, it will auto-open the browser with the main page, and will take you o settings to set your Brave/Google search API and AI LLM settings. Then go back to main and recommend the AI Easy Mode for building the topic/search words, guidance for a report. Press generate button and give it 10~45 minutes to produce a text and PDF versions of he report.
+- Process right now is run the .sh or .bat depending on OS, say yes to the installation requests, it will auto-open the browser with the main page, and will take you o settings to set your Brave/Google search API and AI LLM settings. Then go back to main and recommend the AI Easy Mode for building the topic/search words, guidance for a report. Press generate button and give it 10~45 minutes to produce a text and PDF versions of he report.
 
 - Things to add:
    - Chromedriver and wkhtmltopdf checks and installer built into the settings page to support for both Linux and Windows.
