@@ -507,15 +507,16 @@ def find_report_files():
     if not os.path.exists(output_dir):
         return []
 
-    # List all files in the outputs directory
-    files = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if os.path.isfile(os.path.join(output_dir, f))]
+    # List all filenames in the outputs directory
+    files = [f for f in os.listdir(output_dir) if os.path.isfile(os.path.join(output_dir, f))]
 
     # Filter for .md and .pdf files
     report_files = [f for f in files if f.endswith('.md') or f.endswith('.pdf')]
 
-    # Sort files by modification time (most recent first)
-    report_files.sort(key=os.path.getmtime, reverse=True)
-    # This is a simplification and might need refinement.
+    # Sort files by modification time (most recent first), using the full path for getmtime
+    report_files.sort(key=lambda f: os.path.getmtime(os.path.join(output_dir, f)), reverse=True)
+    
+    # Return just the filenames, as the frontend route handles the directory
     return report_files[:2]
 
 
