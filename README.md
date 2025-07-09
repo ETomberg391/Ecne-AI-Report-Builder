@@ -1,13 +1,12 @@
 # Ecne Report Builder
 
+Automated AI research report generation. Leverages web research (Google/Brave), local documents (TXT, PDF, DOCX), and Large Language Models (LLMs) to produce structured reports on a given topic.
+
 
 <img src="https://github.com/user-attachments/assets/e766db6f-21ce-4d02-a4fc-8050832d0c53" alt="generatedreportExample1" width="48%"><img src="https://github.com/user-attachments/assets/cd608837-dc2d-4e8a-b280-a77bcf494e3b" alt="generatedreportExample2" width="48%">
 ![image](https://github.com/user-attachments/assets/c7f181e1-2047-4b51-8e41-129601bb89a9)
 
 *API Key in example has already been expired don't worry about it.*
-
-
-Automated AI research report generation. Leverages web research (Google/Brave), local documents (TXT, PDF, DOCX), and Large Language Models (LLMs) to produce structured reports on a given topic.
 
 ---
 
