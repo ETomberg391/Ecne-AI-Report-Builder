@@ -24,7 +24,17 @@ Automated AI research report generation. Leverages web research (Google/Brave), 
 
 ---
 
-## 🚀 Installation and Running
+## 📋 Prerequisites
+
+*   **Python 3:** Ensure Python 3 is installed on your system.
+*   **Pip:** Python's package installer, which typically comes with Python.
+*   **venv:** The standard Python module for creating virtual environments.
+    *   **Windows:** `venv` is included by default with the Python installer.
+    *   **Linux (Debian/Ubuntu):** If not installed, you can add it via: `sudo apt install python3-venv`
+
+---
+
+## � Installation and Running
 
 The recommended way to use the Ecne Report Builder is via the Web GUI.
 
