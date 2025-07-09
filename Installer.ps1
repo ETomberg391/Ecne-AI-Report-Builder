@@ -314,36 +314,6 @@ if (Test-Path $envPath) {
     }
 }
 
-# Configure API Keys
-$configureGoogle = Read-Host "Do you want to configure Google Custom Search API? (Optional, needed for Google search) [y/N]"
-if ($configureGoogle -eq 'y') {
-    Write-Host "Get API Key from Google Cloud Console (Credentials page)"
-    $googleApiKey = Read-Host "Enter GOOGLE_API_KEY"
-    Write-Host "Get Search Engine ID (cx) from Programmable Search Engine control panel"
-    $googleCseId = Read-Host "Enter GOOGLE_CSE_ID"
-
-    if (Test-Path $envPath) {
-        (Get-Content $envPath) | 
-            ForEach-Object { $_ -replace '^GOOGLE_API_KEY=.*', "GOOGLE_API_KEY=`"$googleApiKey`"" } |
-            ForEach-Object { $_ -replace '^GOOGLE_CSE_ID=.*', "GOOGLE_CSE_ID=`"$googleCseId`"" } |
-            Set-Content $envPath
-        Write-Info "Updated Google API settings in .env"
-    }
-}
-
-$configureBrave = Read-Host "Do you want to configure Brave Search API? (Optional, needed for Brave search) [y/N]"
-if ($configureBrave -eq 'y') {
-    Write-Host "Get Brave Search API Key from https://api.search.brave.com/"
-    $braveApiKey = Read-Host "Enter BRAVE_API_KEY"
-
-    if (Test-Path $envPath) {
-        (Get-Content $envPath) |
-            ForEach-Object { $_ -replace '^BRAVE_API_KEY=.*', "BRAVE_API_KEY=`"$braveApiKey`"" } |
-            Set-Content $envPath
-        Write-Info "Updated Brave API key in .env"
-    }
-}
-
 # Check if ai_models.yml exists, copy from example if not
 $aiModelsPath = ".\settings\llm_settings\ai_models.yml"
 $exampleAiModelsPath = ".\settings\llm_settings\ai_models.example.yml"
@@ -366,52 +336,6 @@ if (-not (Test-Path $aiModelsPath)) {
 } else {
     Write-Info "$aiModelsPath already exists."
 }
-
-# Configure LLM
-$useGemini = Read-Host "Do you want to use the recommended free Google Gemini Flash model? (Recommended) [Y/n]"
-if ($useGemini -ne 'n') {
-    Write-Host "Get a Google Gemini API key from https://ai.google.dev/gemini-api/docs/api-key"
-    $geminiApiKey = Read-Host "Enter Gemini API Key"
-    
-    $aiModelsPath = ".\settings\llm_settings\ai_models.yml"
-    if (Test-Path $aiModelsPath) {
-        (Get-Content $aiModelsPath) |
-            ForEach-Object { $_ -replace 'api_key:\s*"[^"]*"', "api_key: `"$geminiApiKey`"" } |
-            Set-Content $aiModelsPath
-        Write-Info "Updated Gemini API key in $aiModelsPath"
-    }
-
-    if (Test-Path $envPath) {
-        (Get-Content $envPath) |
-            ForEach-Object { $_ -replace '^DEFAULT_MODEL_CONFIG=.*', 'DEFAULT_MODEL_CONFIG="gemini_flash"' } |
-            Set-Content $envPath
-        Write-Info "Set DEFAULT_MODEL_CONFIG to 'gemini_flash' in .env"
-    }
-} else {
-    Write-Host "Please enter the OpenAI API compatible server settings:"
-    $openaiEndpoint = Read-Host "API Endpoint URL (e.g., https://api.openai.com/v1 or local server URL)"
-    $openaiKey = Read-Host "API Key (e.g., sk-..., or leave blank if not needed)"
-    $openaiModel = Read-Host "Model Name (e.g., gpt-4o, leave blank for default)"
-    $openaiTemp = Read-Host "Temperature (e.g., 0.7, leave blank for default)"
-
-    $aiModelsPath = ".\settings\llm_settings\ai_models.yml"
-    if (Test-Path $aiModelsPath) {
-        $content = Get-Content $aiModelsPath
-        if ($openaiEndpoint) {
-            $content = $content -replace 'api_endpoint: ".*"', "api_endpoint: `"$openaiEndpoint`""
-        }
-        if ($openaiKey) {
-            $content = $content -replace 'api_key: ".*"', "api_key: `"$openaiKey`""
-        }
-        if ($openaiModel) {
-            $content = $content -replace 'model: ".*"', "model: `"$openaiModel`""
-        }
-        if ($openaiTemp) {
-            $content = $content -replace 'temperature: .*', "temperature: $openaiTemp"
-        }
-        $content | Set-Content $aiModelsPath
-        Write-Info "Updated OpenAI settings in $aiModelsPath"
-    }
 
     if (Test-Path $envPath) {
         (Get-Content $envPath) |

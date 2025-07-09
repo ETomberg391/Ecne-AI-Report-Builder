@@ -292,6 +292,58 @@ def load_api_keys():
         "REDDIT_USER_AGENT": os.getenv("REDDIT_USER_AGENT", ""),
     }
 
+@app.route('/api/update_chromedriver', methods=['POST'])
+def update_chromedriver():
+    def generate_output():
+        try:
+            import sys
+            import subprocess
+            
+            script_path = ""
+            command = []
+
+            if sys.platform == "win32":
+                script_path = "settings/installers/chromedriver_installer.ps1"
+                command = ["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", script_path]
+                yield "data: Starting Windows ChromeDriver update...\n\n"
+            elif sys.platform.startswith('linux'):
+                script_path = "settings/installers/chromedriver_installer.sh"
+                command = ["/bin/bash", script_path]
+                yield "data: Starting Linux ChromeDriver update...\n\n"
+            else:
+                yield f"data: ERROR: Unsupported operating system: {sys.platform}\n\n"
+                return
+
+            # Set the project root as the working directory for the script
+            project_root = os.path.dirname(os.path.abspath(__file__))
+            process = subprocess.Popen(
+                command,
+                cwd=project_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+
+            for line in iter(process.stdout.readline, ''):
+                yield f"data: {line.strip()}\n\n"
+            
+            process.stdout.close()
+            return_code = process.wait()
+
+            if return_code == 0:
+                yield "data: \n"
+                yield "data: SUCCESS: Script finished successfully.\n\n"
+            else:
+                yield "data: \n"
+                yield f"data: ERROR: Script finished with exit code {return_code}.\n\n"
+
+        except Exception as e:
+            yield f"data: ERROR: An exception occurred: {str(e)}\n\n"
+
+    return Response(generate_output(), mimetype='text/event-stream')
+
 @app.route('/generate_ai_suggestions', methods=['POST'])
 def generate_ai_suggestions():
     """

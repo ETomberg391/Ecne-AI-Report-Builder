@@ -370,10 +370,6 @@ fi
 print_info "Host Python environment setup complete."
 echo
 
-
-# --- Optional Chrome/ChromeDriver Installation ---
-# (Now runs *after* venv setup)
-
 # --- ChromeDriver Setup Functions ---
 
 # Function to find installed Chrome/Chromium version

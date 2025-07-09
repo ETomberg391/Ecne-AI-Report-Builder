@@ -1,16 +1,22 @@
 document.addEventListener('DOMContentLoaded', function() {
+    // --- General Settings Elements ---
     const apiKeyForm = document.getElementById('api-keys-form');
     const llmSettingsForm = document.getElementById('llm-settings-form');
     const llmModelSelect = document.getElementById('llm-model-select');
     const llmModelDetails = document.getElementById('llm-model-details');
     const newLlmModelDetails = document.getElementById('new-llm-model-details');
     const deleteLlmModelButton = document.getElementById('delete-llm-model');
-    const saveLlmSettingsButton = document.getElementById('save-llm-settings');
+
+    // --- ChromeDriver Update Elements ---
+    const updateButton = document.getElementById('update-chromedriver-btn');
+    const modal = document.getElementById('chromedriver-update-modal');
+    const outputElement = document.getElementById('chromedriver-update-output');
+    const closeButton = modal.querySelector('.close-button');
 
     // Store loaded LLM settings to avoid re-fetching
     let currentLlmSettingsData = {};
 
-    // --- Load Settings on Page Load ---
+    // --- Load All Settings on Page Load ---
     async function loadSettings() {
         try {
             const response = await fetch('/api/settings');
@@ -21,12 +27,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('google_api_key').value = data.api_keys.GOOGLE_API_KEY || '';
                 document.getElementById('google_cse_id').value = data.api_keys.GOOGLE_CSE_ID || '';
                 document.getElementById('brave_api_key').value = data.api_keys.BRAVE_API_KEY || '';
-                // Removed Reddit API fields as per requirements
             }
 
             // Populate LLM Models dropdown
             if (data.llm_settings) {
-                currentLlmSettingsData = data.llm_settings; // Store for later use
+                currentLlmSettingsData = data.llm_settings;
                 llmModelSelect.innerHTML = '<option value="">-- Select a model --</option>';
                 for (const key in data.llm_settings) {
                     const option = document.createElement('option');
@@ -34,17 +39,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     option.textContent = key;
                     llmModelSelect.appendChild(option);
                 }
-                // Add "New LLM" option at the end
                 const newLlmOption = document.createElement('option');
                 newLlmOption.value = 'new-llm';
                 newLlmOption.textContent = 'New LLM';
                 llmModelSelect.appendChild(newLlmOption);
             }
-
-            // Hide both detail sections initially
             llmModelDetails.style.display = 'none';
             newLlmModelDetails.style.display = 'none';
-
         } catch (error) {
             console.error('Error loading settings:', error);
             alert('Failed to load settings.');
@@ -54,30 +55,20 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Handle LLM Model Selection Change ---
     llmModelSelect.addEventListener('change', function() {
         const selectedKey = this.value;
-
-        // Hide both sections first
         llmModelDetails.style.display = 'none';
         newLlmModelDetails.style.display = 'none';
 
         if (selectedKey === 'new-llm') {
-            // Show new LLM form and clear its fields
             newLlmModelDetails.style.display = 'block';
-            newLlmModelDetails.querySelectorAll('input, textarea').forEach(input => {
-                input.value = '';
-            });
+            newLlmModelDetails.querySelectorAll('input, textarea').forEach(input => input.value = '');
         } else if (selectedKey && currentLlmSettingsData[selectedKey]) {
-            // Show existing LLM details
             llmModelDetails.style.display = 'block';
             const selectedModelSettings = currentLlmSettingsData[selectedKey];
-
-            // Populate LLM model details form
             document.getElementById('llm-model-name').value = selectedModelSettings.model || '';
             document.getElementById('llm-api-endpoint').value = selectedModelSettings.api_endpoint || '';
             document.getElementById('llm-api-key').value = selectedModelSettings.api_key || '';
             document.getElementById('llm-max-tokens').value = selectedModelSettings.max_tokens || '';
             document.getElementById('llm-temperature').value = selectedModelSettings.temperature || '';
-
-            // Set model name input as readonly
             document.getElementById('llm-model-name').setAttribute('readonly', 'true');
         }
     });
@@ -85,30 +76,20 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Handle Save API Keys Form Submission ---
     apiKeyForm.addEventListener('submit', async function(event) {
         event.preventDefault();
-
         const apiKeysData = {
             GOOGLE_API_KEY: document.getElementById('google_api_key').value,
             GOOGLE_CSE_ID: document.getElementById('google_cse_id').value,
             BRAVE_API_KEY: document.getElementById('brave_api_key').value,
-            // Reddit API keys are removed from the form and thus not sent
         };
-
         try {
             const response = await fetch('/save_settings', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ apiKeys: apiKeysData })
             });
-
             const result = await response.json();
-            if (response.ok) {
-                alert(result.message);
-                location.reload();
-            } else {
-                alert('Error saving API keys: ' + result.message);
-            }
+            alert(result.message);
+            if (response.ok) location.reload();
         } catch (error) {
             console.error('Error saving API keys:', error);
             alert('Failed to save API keys.');
@@ -118,32 +99,22 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Handle Save LLM Settings Form Submission ---
     llmSettingsForm.addEventListener('submit', async function(event) {
         event.preventDefault();
-
         const selectedKey = llmModelSelect.value;
-        let updatedLlmSettings = { ...currentLlmSettingsData }; // Start with current data
+        let updatedLlmSettings = { ...currentLlmSettingsData };
 
         if (selectedKey === 'new-llm') {
             const newModelKey = document.getElementById('new-llm-key').value.trim();
-            if (!newModelKey) {
-                alert("Please provide a key for the new LLM model.");
-                return;
-            }
-            if (updatedLlmSettings.hasOwnProperty(newModelKey)) {
-                alert(`An LLM model with key "${newModelKey}" already exists. Please choose a different key or edit the existing model.`);
-                return;
-            }
-
-            const newModelSettings = {
+            if (!newModelKey) return alert("Please provide a key for the new LLM model.");
+            if (updatedLlmSettings.hasOwnProperty(newModelKey)) return alert(`An LLM model with key "${newModelKey}" already exists.`);
+            
+            updatedLlmSettings[newModelKey] = {
                 model: document.getElementById('new-llm-model-name').value,
                 api_endpoint: document.getElementById('new-llm-api-endpoint').value,
                 api_key: document.getElementById('new-llm-api-key').value,
                 max_tokens: parseFloat(document.getElementById('new-llm-max-tokens').value) || null,
                 temperature: parseFloat(document.getElementById('new-llm-temperature').value) || null,
             };
-            updatedLlmSettings[newModelKey] = newModelSettings;
-
         } else if (selectedKey && updatedLlmSettings.hasOwnProperty(selectedKey)) {
-            // Update existing model
             updatedLlmSettings[selectedKey] = {
                 model: document.getElementById('llm-model-name').value,
                 api_endpoint: document.getElementById('llm-api-endpoint').value,
@@ -152,26 +123,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 temperature: parseFloat(document.getElementById('llm-temperature').value) || null,
             };
         } else {
-            alert("Please select an LLM model to edit or choose 'New LLM' to add a new one.");
-            return;
+            return alert("Please select an LLM model to edit or choose 'New LLM'.");
         }
 
         try {
             const response = await fetch('/save_settings', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ llmSettings: updatedLlmSettings })
             });
-
             const result = await response.json();
-            if (response.ok) {
-                alert(result.message);
-                location.reload(); // Reload the page to reflect all changes
-            } else {
-                alert('Error saving LLM settings: ' + result.message);
-            }
+            alert(result.message);
+            if (response.ok) location.reload();
         } catch (error) {
             console.error('Error saving LLM settings:', error);
             alert('Failed to save LLM settings.');
@@ -181,37 +144,25 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Handle Delete LLM Model Button Click ---
     deleteLlmModelButton.addEventListener('click', async function() {
         const selectedKey = llmModelSelect.value;
-        if (!selectedKey || selectedKey === "" || selectedKey === "new-llm") {
-            alert("Please select an existing LLM model to delete.");
-            return;
-        }
-
-        if (confirm(`Are you sure you want to delete the LLM model configuration for "${selectedKey}"?`)) {
+        if (!selectedKey || selectedKey === "" || selectedKey === "new-llm") return alert("Please select an existing LLM model to delete.");
+        
+        if (confirm(`Are you sure you want to delete the LLM model "${selectedKey}"?`)) {
             try {
                 let updatedLlmSettings = { ...currentLlmSettingsData };
                 if (updatedLlmSettings.hasOwnProperty(selectedKey)) {
                     delete updatedLlmSettings[selectedKey];
-
                     const response = await fetch('/save_settings', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ llmSettings: updatedLlmSettings })
                     });
-
                     const result = await response.json();
+                    alert(result.message);
                     if (response.ok) {
-                        alert(result.message);
-                        loadSettings(); // Reload settings to update dropdown
-                        llmModelDetails.style.display = 'none'; // Hide details section
-                    } else {
-                        alert('Error deleting LLM model: ' + result.message);
+                        loadSettings();
+                        llmModelDetails.style.display = 'none';
                     }
-                } else {
-                    alert(`LLM model configuration for "${selectedKey}" not found.`);
                 }
-
             } catch (error) {
                 console.error('Error deleting LLM model:', error);
                 alert('Failed to delete LLM model.');
@@ -219,6 +170,53 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Initial load of settings when the page loads
+    // --- ChromeDriver Update Logic ---
+    if (updateButton) {
+        updateButton.addEventListener('click', async () => {
+            modal.style.display = 'block';
+            outputElement.textContent = 'Starting update process...';
+
+            try {
+                const response = await fetch('/api/update_chromedriver', { method: 'POST' });
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                outputElement.textContent = ''; // Clear initial message
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        outputElement.textContent += '\n\nProcess finished.';
+                        break;
+                    }
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // Keep the last, possibly incomplete, line
+
+                    for (const line of lines) {
+                        if (line.startsWith('data:')) {
+                            const data = line.substring(5).trim();
+                            if (data) {
+                                outputElement.textContent += data + '\n';
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                outputElement.textContent += `\n\nAn error occurred: ${error}`;
+            }
+        });
+    }
+
+    if (closeButton) {
+        closeButton.addEventListener('click', () => modal.style.display = 'none');
+    }
+
+    window.addEventListener('click', (event) => {
+        if (event.target == modal) modal.style.display = 'none';
+    });
+
+    // --- Initial Load ---
     loadSettings();
 });
