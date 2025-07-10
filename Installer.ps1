@@ -367,7 +367,6 @@ try {
             Set-Content $envPath
         Write-Info "Set DEFAULT_MODEL_CONFIG to 'default_model' in .env"
     }
-}
 
 # Final Instructions
 Write-Host "`n---------------------------------------------"
