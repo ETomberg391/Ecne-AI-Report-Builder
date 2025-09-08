@@ -202,6 +202,16 @@ def convert_markdown_to_pdf(markdown_content, pdf_path):
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html_content, 'html.parser')
 
+        # ------------------------------------------------------------
+        # Wrap every <table> in a responsive container.
+        # This allows the CSS defined later ('.table-responsive')
+        # to apply overflow-x: auto, enabling horizontal scrolling for
+        # tables that are wider than the page.
+        # ------------------------------------------------------------
+        for table in soup.find_all('table'):
+            wrapper = soup.new_tag('div', **{'class': 'table-responsive'})
+            table.wrap(wrapper)
+
         for strong_tag in soup.find_all('strong'):
             # Check the previous sibling, which could be a text node or another tag
             previous_sibling = strong_tag.previous_sibling
@@ -287,20 +297,35 @@ def convert_markdown_to_pdf(markdown_content, pdf_path):
             font-weight: bold;
             color: #2c3e50;
         }}
+        .table-responsive {{
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }}
+
+        /* Extra safety: force tables to break words if they overflow */
+        table td, table th {{
+            word-break: break-all;
+        }}
         table {{
             border-collapse: collapse;
             width: 100%;
             margin-bottom: 16px;
+            table-layout: fixed;
         }}
         th, td {{
             border: 1px solid #ddd;
             padding: 8px;
             text-align: left;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-word;
+            hyphens: auto;
         }}
         th {{
             background-color: #f8f9fa;
             font-weight: bold;
         }}
+        .table-responsive {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
         .page-break {{ page-break-before: always; }}
     </style>
 </head>
@@ -313,6 +338,7 @@ def convert_markdown_to_pdf(markdown_content, pdf_path):
         # PDF conversion options with improved formatting
         options = {
             'page-size': 'Letter',
+            'orientation': 'Landscape',
             'margin-top': '0.75in',
             'margin-right': '0.75in',
             'margin-bottom': '0.75in',
@@ -322,7 +348,7 @@ def convert_markdown_to_pdf(markdown_content, pdf_path):
             'enable-local-file-access': None,
             'print-media-type': None,
             'disable-smart-shrinking': None,
-            'zoom': '1.0'
+            'zoom': '0.9'
         }
 
         try:

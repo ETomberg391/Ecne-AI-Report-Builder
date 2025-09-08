@@ -29,34 +29,20 @@ print_info "Starting ChromeDriver check for Linux..."
 
 # --- Find Chrome/Chromium ---
 get_chrome_version() {
-    local browser_path
-    local chrome_version
-    # Expanded list of common browser commands and paths
-    local browsers=("google-chrome-stable" "google-chrome" "chromium-browser" "chromium" "/usr/bin/google-chrome-stable" "/usr/bin/google-chrome" "/usr/bin/chromium-browser" "/usr/bin/chromium")
-
+    local chrome_version=""
+    # List of common browser commands
+    local browsers=("google-chrome-stable" "google-chrome" "chromium-browser" "chromium")
+    
     for browser in "${browsers[@]}"; do
-        if command -v "$browser" &>/dev/null; then
-            browser_path=$(command -v "$browser")
-            print_info "Found browser executable at: $browser_path"
-            
-            # Try --version first, then --product-version
-            chrome_version=$("$browser_path" --version 2>/dev/null)
-            if [ -z "$chrome_version" ]; then
-                chrome_version=$("$browser_path" --product-version 2>/dev/null)
-            fi
-
+        if command -v "$browser" &> /dev/null; then
+            chrome_version=$($browser --version 2>/dev/null)
             if [ -n "$chrome_version" ]; then
                 # Extract version number (e.g., "Google Chrome 114.0.5735.198" -> "114.0.5735.198")
                 echo "$chrome_version" | grep -oP '(\d+\.\d+\.\d+\.\d+)' | head -n 1
                 return 0
-            else
-                print_warning "Could not determine version from '$browser_path'."
             fi
         fi
     done
-
-    print_error "Could not find a compatible Chrome/Chromium browser."
-    print_error "Please ensure Google Chrome or Chromium is installed and accessible in your PATH."
     return 1
 }
 
@@ -109,34 +95,13 @@ if [ "$should_install_driver" = "true" ]; then
     versions_url="https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json"
     
     print_info "Fetching latest ChromeDriver version information..."
-    
-    json_data=$(curl -s -f "$versions_url")
-    if [ -z "$json_data" ]; then
-        print_error "Failed to fetch version data from $versions_url"
-        exit 1
-    fi
-
-    # Try to find a version matching the major Chrome version
-    version_info=$(echo "$json_data" | jq -c --arg major_version "$chrome_major_version" '
-        .versions |
-        map(select(.version | startswith($major_version + "."))) |
-        sort_by(.version | split(".") | map(tonumber)) |
-        .[-1]
-    ')
-
-    # If no matching version is found, fall back to the latest available version
-    if [ "$version_info" = "null" ] || [ -z "$version_info" ]; then
-        print_warning "Could not find a matching ChromeDriver for major version $chrome_major_version. Falling back to latest available version."
-        version_info=$(echo "$json_data" | jq -c '
-            .versions |
-            sort_by(.version | split(".") | map(tonumber)) |
-            .[-1]
-        ')
-    fi
-
-    download_url=$(echo "$version_info" | jq -r '
-        .downloads.chromedriver[]? |
-        select(.platform == "linux64") |
+    # Use jq to find the latest version for the major build
+    download_url=$(curl -s "$versions_url" | jq -r --arg major_version "$chrome_major_version" '
+        .versions | 
+        map(select(.version | startswith($major_version + "."))) | 
+        sort_by(.version | split(".") | map(tonumber))[-1] | 
+        .downloads.chromedriver[] | 
+        select(.platform == "linux64") | 
         .url
     ')
 
